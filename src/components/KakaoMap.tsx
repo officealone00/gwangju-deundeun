@@ -6,6 +6,12 @@ import {
   type Pharmacy,
 } from '../api/publicData'
 import { getDistance, formatDistance, walkingMinutes } from '../utils/geo'
+import {
+  calculateSafetyScore,
+  getGradeColor,
+  getGradeDescription,
+  type SafetyScore,
+} from '../utils/safetyScore'
 
 const GWANGJU_CENTER = {
   lat: 35.1595454,
@@ -25,6 +31,68 @@ interface NearestPlace {
   distance: number
 }
 
+interface NearestItemProps {
+  place: NearestPlace
+  idx: number
+  onItemClick: (place: NearestPlace) => void
+}
+
+function NearestItem(props: NearestItemProps) {
+  const place = props.place
+  const idx = props.idx
+
+  function onClickRow() {
+    props.onItemClick(place)
+  }
+
+  function onClickPhone(e: React.MouseEvent) {
+    e.stopPropagation()
+  }
+
+  const telHref = 'tel:' + place.tel
+
+  return (
+    <div onClick={onClickRow} style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ width: 32, height: 32, borderRadius: '50%', background: idx === 0 ? '#FF8C42' : '#f0f0f0', color: idx === 0 ? '#fff' : '#666', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{idx + 1}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#333', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place.name}</div>
+        <div style={{ fontSize: 12, color: '#888' }}>📍 {formatDistance(place.distance)} · 도보 약 {walkingMinutes(place.distance)}분</div>
+      </div>
+      <a href={telHref} onClick={onClickPhone} style={{ padding: '8px 12px', background: '#1976d2', color: '#fff', borderRadius: 999, fontSize: 12, fontWeight: 700, textDecoration: 'none', flexShrink: 0 }}>📞 전화</a>
+    </div>
+  )
+}
+
+interface ScoreRowProps {
+  label: string
+  value: number
+  max: number
+  hint: string
+}
+
+function ScoreRow(props: ScoreRowProps) {
+  const ratio = props.value / props.max
+  let barColor = '#e53935'
+  if (ratio >= 0.75) barColor = '#43a047'
+  else if (ratio >= 0.5) barColor = '#fb8c00'
+  else if (ratio >= 0.25) barColor = '#fdd835'
+
+  const widthPct = (ratio * 100) + '%'
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <span style={{ fontSize: 13, color: '#333', fontWeight: 600 }}>{props.label}</span>
+        <span style={{ fontSize: 13, color: '#333', fontWeight: 700 }}>{props.value} <span style={{ color: '#999', fontWeight: 400 }}>/ {props.max}점</span></span>
+      </div>
+      <div style={{ height: 8, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+        <div style={{ width: widthPct, height: '100%', background: barColor, transition: 'width 0.5s' }} />
+      </div>
+      <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>{props.hint}</div>
+    </div>
+  )
+}
+
 export default function KakaoMap() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -40,8 +108,10 @@ export default function KakaoMap() {
   const [locating, setLocating] = useState(false)
   const [nearestList, setNearestList] = useState<NearestPlace[]>([])
   const [showSheet, setShowSheet] = useState(false)
+  const [safetyScore, setSafetyScore] = useState<SafetyScore | null>(null)
+  const [showScoreDetail, setShowScoreDetail] = useState(false)
 
-  useEffect(() => {
+  useEffect(function () {
     const script = document.createElement('script')
     script.async = true
     script.src = '//dapi.kakao.com/v2/maps/sdk.js?appkey=' + KAKAO_MAP_KEY + '&libraries=services,clusterer&autoload=false'
@@ -60,7 +130,7 @@ export default function KakaoMap() {
     document.head.appendChild(script)
   }, [])
 
-  useEffect(() => {
+  useEffect(function () {
     async function loadAll() {
       setLoading(true)
       const result = await Promise.all([
@@ -74,7 +144,7 @@ export default function KakaoMap() {
     loadAll()
   }, [])
 
-  useEffect(() => {
+  useEffect(function () {
     if (!mapRef.current) return
 
     markersRef.current.forEach(function (m) { m.setMap(null) })
@@ -91,12 +161,13 @@ export default function KakaoMap() {
       marker.setMap(map)
       markersRef.current.push(marker)
 
+      const tel = item.dutyTel1 || '전화번호 없음'
       const content =
         '<div style="padding:12px 16px;min-width:220px;font-family:sans-serif;">' +
         '<div style="font-size:14px;font-weight:700;color:' + color + ';margin-bottom:6px;">' + emoji + ' ' + item.dutyName + '</div>' +
         '<div style="font-size:12px;color:#555;line-height:1.5;">' +
         item.dutyAddr + '<br/>' +
-        '📞 <a href="tel:' + item.dutyTel1 + '" style="color:#1976d2;text-decoration:none;">' + (item.dutyTel1 || '전화번호 없음') + '</a>' +
+        '📞 <a href="tel:' + item.dutyTel1 + '" style="color:#1976d2;text-decoration:none;">' + tel + '</a>' +
         '</div></div>'
 
       const infowindow = new window.kakao.maps.InfoWindow({ content: content })
@@ -106,6 +177,24 @@ export default function KakaoMap() {
       })
     })
   }, [activeLayer, emergencyRooms, pharmacies])
+
+  function calculateNearest(lat: number, lng: number) {
+    const items = activeLayer === 'emergency' ? emergencyRooms : pharmacies
+
+    const withDistance: NearestPlace[] = items.map(function (item) {
+      return {
+        name: item.dutyName,
+        addr: item.dutyAddr,
+        tel: item.dutyTel1,
+        lat: item.wgs84Lat,
+        lng: item.wgs84Lon,
+        distance: getDistance(lat, lng, item.wgs84Lat, item.wgs84Lon),
+      }
+    })
+
+    withDistance.sort(function (a, b) { return a.distance - b.distance })
+    setNearestList(withDistance.slice(0, 5))
+  }
 
   function findMyLocation() {
     setLocating(true)
@@ -143,6 +232,8 @@ export default function KakaoMap() {
         }
 
         calculateNearest(lat, lng)
+        const score = calculateSafetyScore(lat, lng, emergencyRooms, pharmacies)
+        setSafetyScore(score)
         setLocating(false)
         setShowSheet(true)
       },
@@ -155,25 +246,7 @@ export default function KakaoMap() {
     )
   }
 
-  function calculateNearest(lat: number, lng: number) {
-    const items = activeLayer === 'emergency' ? emergencyRooms : pharmacies
-
-    const withDistance: NearestPlace[] = items.map(function (item) {
-      return {
-        name: item.dutyName,
-        addr: item.dutyAddr,
-        tel: item.dutyTel1,
-        lat: item.wgs84Lat,
-        lng: item.wgs84Lon,
-        distance: getDistance(lat, lng, item.wgs84Lat, item.wgs84Lon),
-      }
-    })
-
-    withDistance.sort(function (a, b) { return a.distance - b.distance })
-    setNearestList(withDistance.slice(0, 5))
-  }
-
-  useEffect(() => {
+  useEffect(function () {
     if (userLocation) {
       calculateNearest(userLocation.lat, userLocation.lng)
     }
@@ -191,176 +264,108 @@ export default function KakaoMap() {
     e.stopPropagation()
   }
 
+  function openScoreDetail() {
+    setShowScoreDetail(true)
+  }
+
+  function closeScoreDetail() {
+    setShowScoreDetail(false)
+  }
+
+  function closeSheet() {
+    setShowSheet(false)
+  }
+
+  function setEmergencyLayer() {
+    setActiveLayer('emergency')
+  }
+
+  function setPharmacyLayer() {
+    setActiveLayer('pharmacy')
+  }
+
   const currentCount = activeLayer === 'emergency' ? emergencyRooms.length : pharmacies.length
   const layerLabel = activeLayer === 'emergency' ? '응급실' : '약국'
+  const bottomBarPosition = showSheet ? 'calc(40vh + 24px)' : 24
+  const headerStatus = loading ? '· 데이터 로딩 중...' : '· ' + layerLabel + ' ' + currentCount + '곳'
+  const emergencyButtonBg = activeLayer === 'emergency' ? '#FF8C42' : 'transparent'
+  const emergencyButtonColor = activeLayer === 'emergency' ? '#fff' : '#666'
+  const pharmacyButtonBg = activeLayer === 'pharmacy' ? '#FF8C42' : 'transparent'
+  const pharmacyButtonColor = activeLayer === 'pharmacy' ? '#fff' : '#666'
+  const locatingIcon = locating ? '⏳' : '📍'
+  const locatingCursor = locating ? 'wait' : 'pointer'
+  const buttonOpacity = loading ? 0.5 : 1
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100vh' }}>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
-      <div style={{
-        position: 'absolute',
-        top: 0, left: 0, right: 0,
-        padding: '16px 20px 24px',
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0) 100%)',
-        zIndex: 10,
-      }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '16px 20px 24px', background: 'linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0) 100%)', zIndex: 10 }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#FF8C42' }}>광주든든</h1>
-        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
-          어르신·1인가구 안심돌봄 {loading ? '· 데이터 로딩 중...' : '· ' + layerLabel + ' ' + currentCount + '곳'}
-        </p>
+        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>어르신·1인가구 안심돌봄 {headerStatus}</p>
       </div>
 
-      <button
-        onClick={findMyLocation}
-        disabled={locating || loading}
-        title="내 위치 찾기"
-        style={{
-          position: 'absolute',
-          top: 100, right: 16,
-          width: 56, height: 56,
-          borderRadius: '50%',
-          border: 'none',
-          background: '#fff',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
-          fontSize: 24,
-          cursor: locating ? 'wait' : 'pointer',
-          zIndex: 10,
-          opacity: loading ? 0.5 : 1,
-        }}
-      >
-        {locating ? '⏳' : '📍'}
-      </button>
+      {safetyScore && (
+        <div onClick={openScoreDetail} style={{ position: 'absolute', top: 90, left: 16, padding: '12px 16px', background: '#fff', borderRadius: 16, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, border: '2px solid ' + getGradeColor(safetyScore.grade) }}>
+          <div style={{ width: 48, height: 48, borderRadius: '50%', background: getGradeColor(safetyScore.grade), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 800 }}>{safetyScore.grade}</div>
+          <div>
+            <div style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>광주든든 안심점수</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#333', lineHeight: 1 }}>{safetyScore.total}<span style={{ fontSize: 13, color: '#888', fontWeight: 500 }}>점</span></div>
+            <div style={{ fontSize: 11, color: getGradeColor(safetyScore.grade), fontWeight: 700, marginTop: 2 }}>{getGradeDescription(safetyScore.grade)} · 자세히 보기 ›</div>
+          </div>
+        </div>
+      )}
 
-      <div style={{
-        position: 'absolute',
-        bottom: showSheet ? 'calc(40vh + 24px)' : 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        display: 'flex',
-        gap: 8,
-        padding: 6,
-        background: '#fff',
-        borderRadius: 999,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-        zIndex: 10,
-        transition: 'bottom 0.3s',
-      }}>
-        <button
-          onClick={function () { setActiveLayer('emergency') }}
-          style={{
-            padding: '10px 20px',
-            border: 'none',
-            borderRadius: 999,
-            background: activeLayer === 'emergency' ? '#FF8C42' : 'transparent',
-            color: activeLayer === 'emergency' ? '#fff' : '#666',
-            fontSize: 14, fontWeight: 700, cursor: 'pointer',
-            transition: 'all 0.2s',
-          }}
-        >🏥 응급실</button>
-        <button
-          onClick={function () { setActiveLayer('pharmacy') }}
-          style={{
-            padding: '10px 20px',
-            border: 'none',
-            borderRadius: 999,
-            background: activeLayer === 'pharmacy' ? '#FF8C42' : 'transparent',
-            color: activeLayer === 'pharmacy' ? '#fff' : '#666',
-            fontSize: 14, fontWeight: 700, cursor: 'pointer',
-            transition: 'all 0.2s',
-          }}
-        >💊 약국</button>
+      <button onClick={findMyLocation} disabled={locating || loading} title="내 위치 찾기" style={{ position: 'absolute', top: 100, right: 16, width: 56, height: 56, borderRadius: '50%', border: 'none', background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 24, cursor: locatingCursor, zIndex: 10, opacity: buttonOpacity }}>{locatingIcon}</button>
+
+      <div style={{ position: 'absolute', bottom: bottomBarPosition, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8, padding: 6, background: '#fff', borderRadius: 999, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, transition: 'bottom 0.3s' }}>
+        <button onClick={setEmergencyLayer} style={{ padding: '10px 20px', border: 'none', borderRadius: 999, background: emergencyButtonBg, color: emergencyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>🏥 응급실</button>
+        <button onClick={setPharmacyLayer} style={{ padding: '10px 20px', border: 'none', borderRadius: 999, background: pharmacyButtonBg, color: pharmacyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>💊 약국</button>
       </div>
 
       {showSheet && userLocation && (
-        <div style={{
-          position: 'absolute',
-          bottom: 0, left: 0, right: 0,
-          height: '40vh',
-          background: '#fff',
-          borderTopLeftRadius: 24,
-          borderTopRightRadius: 24,
-          boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
-          zIndex: 20,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          <div style={{
-            padding: '12px 20px 8px',
-            borderBottom: '1px solid #eee',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}>
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '40vh', background: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, boxShadow: '0 -4px 24px rgba(0,0,0,0.15)', zIndex: 20, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '12px 20px 8px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ width: 40, height: 4, background: '#ddd', borderRadius: 2, margin: '0 auto 8px' }} />
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#333' }}>
-                가까운 {layerLabel} TOP 5
-              </h2>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#333' }}>가까운 {layerLabel} TOP 5</h2>
             </div>
-            <button
-              onClick={function () { setShowSheet(false) }}
-              style={{ border: 'none', background: 'none', fontSize: 24, cursor: 'pointer', color: '#999' }}
-            >✕</button>
+            <button onClick={closeSheet} style={{ border: 'none', background: 'none', fontSize: 24, cursor: 'pointer', color: '#999' }}>✕</button>
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
             {nearestList.map(function (place, idx) {
-              return (
-                <div
-                  key={idx}
-                  onClick={function () { focusOnPlace(place) }}
-                  style={{
-                    padding: '14px 20px',
-                    borderBottom: '1px solid #f5f5f5',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                  }}
-                >
-                  <div style={{
-                    width: 32, height: 32,
-                    borderRadius: '50%',
-                    background: idx === 0 ? '#FF8C42' : '#f0f0f0',
-                    color: idx === 0 ? '#fff' : '#666',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 800,
-                    fontSize: 14,
-                    flexShrink: 0,
-                  }}>{idx + 1}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      fontSize: 14, fontWeight: 700, color: '#333',
-                      marginBottom: 4,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}>{place.name}</div>
-                    <div style={{ fontSize: 12, color: '#888' }}>
-                      📍 {formatDistance(place.distance)} · 도보 약 {walkingMinutes(place.distance)}분
-                    </div>
-                  </div>
-                  <a
-                    href={'tel:' + place.tel}
-                    onClick={handleStopProp}
-                    style={{
-                      padding: '8px 12px',
-                      background: '#1976d2',
-                      color: '#fff',
-                      borderRadius: 999,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      textDecoration: 'none',
-                      flexShrink: 0,
-                    }}
-                  >📞 전화</a>
-                </div>
-              )
+              return <NearestItem key={idx} place={place} idx={idx} onItemClick={focusOnPlace} />
             })}
+          </div>
+        </div>
+      )}
+
+      {showScoreDetail && safetyScore && (
+        <div onClick={closeScoreDetail} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={handleStopProp} style={{ background: '#fff', borderRadius: 20, padding: '24px', maxWidth: 400, width: '100%', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 12, color: '#888', fontWeight: 600 }}>광주든든 안심점수</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
+                  <span style={{ fontSize: 40, fontWeight: 900, color: getGradeColor(safetyScore.grade) }}>{safetyScore.total}</span>
+                  <span style={{ fontSize: 18, color: '#666' }}>/ 100점</span>
+                  <span style={{ marginLeft: 8, padding: '4px 10px', background: getGradeColor(safetyScore.grade), color: '#fff', borderRadius: 999, fontSize: 14, fontWeight: 800 }}>{safetyScore.grade}등급</span>
+                </div>
+                <div style={{ fontSize: 13, color: getGradeColor(safetyScore.grade), fontWeight: 700, marginTop: 4 }}>{getGradeDescription(safetyScore.grade)}</div>
+              </div>
+              <button onClick={closeScoreDetail} style={{ border: 'none', background: 'none', fontSize: 24, cursor: 'pointer', color: '#999' }}>✕</button>
+            </div>
+
+            <div style={{ borderTop: '1px solid #eee', paddingTop: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#333', marginBottom: 12 }}>점수 산출 근거</div>
+
+              <ScoreRow label="🏥 응급실 접근성" value={safetyScore.emergency} max={40} hint={'1km 내 응급실 ' + safetyScore.emergencyCount1km + '곳'} />
+              <ScoreRow label="💊 약국 접근성" value={safetyScore.pharmacy} max={30} hint={'500m 내 약국 ' + safetyScore.pharmacyCount500m + '곳'} />
+              <ScoreRow label="📏 거리 가중치" value={safetyScore.distance} max={30} hint={'가장 가까운 응급실 ' + formatDistance(safetyScore.nearestEmergencyDist)} />
+            </div>
+
+            <div style={{ marginTop: 16, padding: '12px 14px', background: '#fff8f0', borderRadius: 12, fontSize: 12, color: '#7a4e1f', lineHeight: 1.5 }}>ℹ️ 광주광역시 공공데이터(응급의료기관 26곳, 약국 486곳)와 거리 기반 알고리즘으로 자동 산출됩니다.</div>
           </div>
         </div>
       )}
