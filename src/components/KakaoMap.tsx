@@ -8,10 +8,14 @@ import {
 import { getDistance, formatDistance, walkingMinutes } from '../utils/geo'
 import {
   calculateSafetyScore,
+  calculateDistrictScores,
   getGradeColor,
   getGradeDescription,
   type SafetyScore,
+  type DistrictScore,
 } from '../utils/safetyScore'
+import { GWANGJU_DISTRICTS } from '../utils/districts'
+import DistrictCompareModal from './DistrictCompareModal'
 
 const GWANGJU_CENTER = {
   lat: 35.1595454,
@@ -110,6 +114,8 @@ export default function KakaoMap() {
   const [showSheet, setShowSheet] = useState(false)
   const [safetyScore, setSafetyScore] = useState<SafetyScore | null>(null)
   const [showScoreDetail, setShowScoreDetail] = useState(false)
+  const [showDistrictCompare, setShowDistrictCompare] = useState(false)
+  const [districtScores, setDistrictScores] = useState<DistrictScore[]>([])
 
   useEffect(function () {
     const script = document.createElement('script')
@@ -143,6 +149,13 @@ export default function KakaoMap() {
     }
     loadAll()
   }, [])
+
+  useEffect(function () {
+    if (emergencyRooms.length > 0 && pharmacies.length > 0) {
+      const scores = calculateDistrictScores(GWANGJU_DISTRICTS, emergencyRooms, pharmacies)
+      setDistrictScores(scores)
+    }
+  }, [emergencyRooms, pharmacies])
 
   useEffect(function () {
     if (!mapRef.current) return
@@ -272,6 +285,21 @@ export default function KakaoMap() {
     setShowScoreDetail(false)
   }
 
+  function openDistrictCompare() {
+    setShowDistrictCompare(true)
+  }
+
+  function closeDistrictCompare() {
+    setShowDistrictCompare(false)
+  }
+
+  function moveToDistrict(lat: number, lng: number) {
+    if (!mapRef.current) return
+    const map = mapRef.current
+    map.setCenter(new window.kakao.maps.LatLng(lat, lng))
+    map.setLevel(5)
+  }
+
   function closeSheet() {
     setShowSheet(false)
   }
@@ -317,6 +345,10 @@ export default function KakaoMap() {
       )}
 
       <button onClick={findMyLocation} disabled={locating || loading} title="내 위치 찾기" style={{ position: 'absolute', top: 100, right: 16, width: 56, height: 56, borderRadius: '50%', border: 'none', background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 24, cursor: locatingCursor, zIndex: 10, opacity: buttonOpacity }}>{locatingIcon}</button>
+
+      {districtScores.length > 0 && (
+        <button onClick={openDistrictCompare} title="광주 5개 자치구 비교" style={{ position: 'absolute', top: 168, right: 16, width: 56, height: 56, borderRadius: '50%', border: 'none', background: '#FF8C42', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 22, color: '#fff', cursor: 'pointer', zIndex: 10 }}>📊</button>
+      )}
 
       <div style={{ position: 'absolute', bottom: bottomBarPosition, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8, padding: 6, background: '#fff', borderRadius: 999, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, transition: 'bottom 0.3s' }}>
         <button onClick={setEmergencyLayer} style={{ padding: '10px 20px', border: 'none', borderRadius: 999, background: emergencyButtonBg, color: emergencyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>🏥 응급실</button>
@@ -368,6 +400,10 @@ export default function KakaoMap() {
             <div style={{ marginTop: 16, padding: '12px 14px', background: '#fff8f0', borderRadius: 12, fontSize: 12, color: '#7a4e1f', lineHeight: 1.5 }}>ℹ️ 광주광역시 공공데이터(응급의료기관 26곳, 약국 486곳)와 거리 기반 알고리즘으로 자동 산출됩니다.</div>
           </div>
         </div>
+      )}
+
+      {showDistrictCompare && (
+        <DistrictCompareModal scores={districtScores} onClose={closeDistrictCompare} onDistrictClick={moveToDistrict} />
       )}
     </div>
   )

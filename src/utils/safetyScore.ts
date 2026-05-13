@@ -1,5 +1,6 @@
 import { getDistance } from './geo'
 import type { EmergencyRoom, Pharmacy } from '../api/publicData'
+import type { District } from './districts'
 
 export interface SafetyScore {
   total: number              // 0~100
@@ -15,7 +16,7 @@ export interface SafetyScore {
 
 /**
  * 위치 기반 안심점수 산출
- * 
+ *
  * 모델:
  * - 응급실 점수 (40점): 1km 내 응급실 갯수
  *   0개=0, 1개=20, 2개=30, 3개 이상=40
@@ -34,7 +35,7 @@ export function calculateSafetyScore(
   const emergencyDistances = emergencyRooms.map(function (e) {
     return getDistance(userLat, userLng, e.wgs84Lat, e.wgs84Lon)
   })
-  
+
   // 모든 약국까지의 거리 계산
   const pharmacyDistances = pharmacies.map(function (p) {
     return getDistance(userLat, userLng, p.wgs84Lat, p.wgs84Lon)
@@ -43,14 +44,14 @@ export function calculateSafetyScore(
   const nearestEmergencyDist = emergencyDistances.length > 0
     ? Math.min.apply(null, emergencyDistances)
     : Infinity
-  
+
   const nearestPharmacyDist = pharmacyDistances.length > 0
     ? Math.min.apply(null, pharmacyDistances)
     : Infinity
 
   // 1km 내 응급실 수
   const emergencyCount1km = emergencyDistances.filter(function (d) { return d <= 1000 }).length
-  
+
   // 500m 내 약국 수
   const pharmacyCount500m = pharmacyDistances.filter(function (d) { return d <= 500 }).length
 
@@ -124,4 +125,35 @@ export function getGradeDescription(grade: SafetyScore['grade']): string {
     D: '취약',
   }
   return descs[grade]
+}
+
+
+// ==================== 자치구별 안심점수 ====================
+
+export interface DistrictScore {
+  district: District
+  score: SafetyScore
+}
+
+/**
+ * 광주 5개 자치구 안심점수 일괄 산출
+ */
+export function calculateDistrictScores(
+  districts: District[],
+  emergencyRooms: EmergencyRoom[],
+  pharmacies: Pharmacy[]
+): DistrictScore[] {
+  return districts.map(function (d) {
+    return {
+      district: d,
+      score: calculateSafetyScore(d.lat, d.lng, emergencyRooms, pharmacies),
+    }
+  })
+}
+
+/**
+ * 점수순 정렬
+ */
+export function sortByScore(scores: DistrictScore[]): DistrictScore[] {
+  return [...scores].sort(function (a, b) { return b.score.total - a.score.total })
 }
