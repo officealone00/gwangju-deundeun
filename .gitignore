@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# 환경변수 (절대 GitHub에 올리지 말 것!)
+.env
+.env.local
+.env.*.local
