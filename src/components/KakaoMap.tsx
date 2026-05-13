@@ -64,7 +64,7 @@ function NearestItem(props: NearestItemProps) {
         <div style={{ fontSize: 14, fontWeight: 700, color: '#333', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place.name}</div>
         <div style={{ fontSize: 12, color: '#888' }}>📍 {formatDistance(place.distance)} · 도보 약 {walkingMinutes(place.distance)}분</div>
       </div>
-      <a href={telHref} onClick={onClickPhone} style={{ padding: '8px 12px', background: '#1976d2', color: '#fff', borderRadius: 999, fontSize: 12, fontWeight: 700, textDecoration: 'none', flexShrink: 0 }}>📞 전화</a>
+      <a href={telHref} onClick={onClickPhone} style={{ padding: '8px 12px', background: '#1976d2', color: '#fff', borderRadius: 999, fontSize: 12, fontWeight: 700, textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>📞 전화</a>
     </div>
   )
 }
@@ -345,12 +345,13 @@ export default function KakaoMap() {
     <div style={{ position: 'relative', width: '100%', height: '100vh' }}>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 'max(env(safe-area-inset-top), 16px) 20px 24px', background: 'linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0) 100%)', zIndex: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src="/gwangju-deundeun/favicon.png" alt="광주든든" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-          <div style={{ minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#FF8C42', lineHeight: 1 }}>광주든든</h1>
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#666' }}>어르신·1인가구 안심돌봄 {headerStatus}</p>
+      {/* 상단 헤더 - 불투명 흰색 배경 + 모바일 최적화 */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, background: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', zIndex: 10 }}>
+        <div style={{ padding: 'max(env(safe-area-inset-top), 12px) 16px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img src="/gwangju-deundeun/favicon.png" alt="광주든든" style={{ width: 40, height: 40, borderRadius: 9, objectFit: 'cover', flexShrink: 0, boxShadow: '0 2px 6px rgba(0,0,0,0.1)' }} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: '#FF8C42', lineHeight: 1.1, letterSpacing: '-0.5px' }}>광주든든</h1>
+            <p style={{ margin: '3px 0 0', fontSize: 11, color: '#666', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>어르신·1인가구 안심돌봄 {headerStatus}</p>
           </div>
         </div>
       </div>
@@ -358,25 +359,26 @@ export default function KakaoMap() {
       <AddressSearch onSelect={onSelectAddress} />
 
       {safetyScore && (
-        <div onClick={openScoreDetail} style={{ position: 'absolute', top: 140, left: 16, padding: '12px 16px', background: '#fff', borderRadius: 16, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, border: '2px solid ' + getGradeColor(safetyScore.grade) }}>
-          <div style={{ width: 48, height: 48, borderRadius: '50%', background: getGradeColor(safetyScore.grade), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 800 }}>{safetyScore.grade}</div>
-          <div>
-            <div style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>{searchedLocation ? searchedLocation.name : '내 위치'} 안심점수</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#333', lineHeight: 1 }}>{safetyScore.total}<span style={{ fontSize: 13, color: '#888', fontWeight: 500 }}>점</span></div>
-            <div style={{ fontSize: 11, color: getGradeColor(safetyScore.grade), fontWeight: 700, marginTop: 2 }}>{getGradeDescription(safetyScore.grade)} · 자세히 보기 ›</div>
+        <div onClick={openScoreDetail} style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 12px) + 144px)', left: 16, padding: '12px 14px', background: '#fff', borderRadius: 16, boxShadow: '0 4px 16px rgba(0,0,0,0.18)', zIndex: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, border: '2px solid ' + getGradeColor(safetyScore.grade), maxWidth: 'calc(100% - 90px)' }}>
+          <div style={{ width: 44, height: 44, borderRadius: '50%', background: getGradeColor(safetyScore.grade), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 800, flexShrink: 0 }}>{safetyScore.grade}</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 10, color: '#888', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{searchedLocation ? searchedLocation.name : '내 위치'} 안심점수</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#333', lineHeight: 1 }}>{safetyScore.total}<span style={{ fontSize: 12, color: '#888', fontWeight: 500 }}>점</span></div>
+            <div style={{ fontSize: 10, color: getGradeColor(safetyScore.grade), fontWeight: 700, marginTop: 2 }}>{getGradeDescription(safetyScore.grade)} · 자세히 ›</div>
           </div>
         </div>
       )}
 
-      <button onClick={findMyLocation} disabled={locating || loading} title="내 위치 찾기" style={{ position: 'absolute', top: 140, right: 16, width: 56, height: 56, borderRadius: '50%', border: 'none', background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 24, cursor: locatingCursor, zIndex: 10, opacity: buttonOpacity }}>{locatingIcon}</button>
+      <button onClick={findMyLocation} disabled={locating || loading} title="내 위치 찾기" style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 12px) + 144px)', right: 16, width: 52, height: 52, borderRadius: '50%', border: 'none', background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 22, cursor: locatingCursor, zIndex: 10, opacity: buttonOpacity }}>{locatingIcon}</button>
 
       {districtScores.length > 0 && (
-        <button onClick={openDistrictCompare} title="광주 5개 자치구 비교" style={{ position: 'absolute', top: 208, right: 16, width: 56, height: 56, borderRadius: '50%', border: 'none', background: '#FF8C42', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 22, color: '#fff', cursor: 'pointer', zIndex: 10 }}>📊</button>
+        <button onClick={openDistrictCompare} title="광주 5개 자치구 비교" style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 12px) + 208px)', right: 16, width: 52, height: 52, borderRadius: '50%', border: 'none', background: '#FF8C42', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 20, color: '#fff', cursor: 'pointer', zIndex: 10 }}>📊</button>
       )}
 
-      <div style={{ position: 'absolute', bottom: bottomBarPosition, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8, padding: 6, background: '#fff', borderRadius: 999, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, transition: 'bottom 0.3s' }}>
-        <button onClick={setEmergencyLayer} style={{ padding: '10px 20px', border: 'none', borderRadius: 999, background: emergencyButtonBg, color: emergencyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>🏥 응급실</button>
-        <button onClick={setPharmacyLayer} style={{ padding: '10px 20px', border: 'none', borderRadius: 999, background: pharmacyButtonBg, color: pharmacyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>💊 약국</button>
+      {/* 하단 토글 버튼 - 모바일에서 두 줄 깨짐 방지 */}
+      <div style={{ position: 'absolute', bottom: bottomBarPosition, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 6, padding: 5, background: '#fff', borderRadius: 999, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, transition: 'bottom 0.3s', whiteSpace: 'nowrap' }}>
+        <button onClick={setEmergencyLayer} style={{ padding: '9px 18px', border: 'none', borderRadius: 999, background: emergencyButtonBg, color: emergencyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>🏥 응급실</button>
+        <button onClick={setPharmacyLayer} style={{ padding: '9px 18px', border: 'none', borderRadius: 999, background: pharmacyButtonBg, color: pharmacyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>💊 약국</button>
       </div>
 
       {showSheet && userLocation && (
