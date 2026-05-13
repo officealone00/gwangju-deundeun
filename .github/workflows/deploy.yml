@@ -34,6 +34,7 @@ jobs:
         run: npm run build
         env:
           VITE_KAKAO_MAP_KEY: ${{ secrets.VITE_KAKAO_MAP_KEY }}
+          VITE_KAKAO_REST_KEY: ${{ secrets.VITE_KAKAO_REST_KEY }}
           VITE_DATA_GO_KR_KEY: ${{ secrets.VITE_DATA_GO_KR_KEY }}
           VITE_JUSO_GO_KR_KEY: ${{ secrets.VITE_JUSO_GO_KR_KEY }}
       

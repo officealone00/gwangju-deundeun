@@ -4,6 +4,7 @@ import {
   fetchGwangjuPharmacies,
   type EmergencyRoom,
   type Pharmacy,
+  type AddressResult,
 } from '../api/publicData'
 import { getDistance, formatDistance, walkingMinutes } from '../utils/geo'
 import {
@@ -16,6 +17,7 @@ import {
 } from '../utils/safetyScore'
 import { GWANGJU_DISTRICTS } from '../utils/districts'
 import DistrictCompareModal from './DistrictCompareModal'
+import AddressSearch from './AddressSearch'
 
 const GWANGJU_CENTER = {
   lat: 35.1595454,
@@ -109,6 +111,7 @@ export default function KakaoMap() {
   const [loading, setLoading] = useState(true)
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number; name: string } | null>(null)
   const [locating, setLocating] = useState(false)
   const [nearestList, setNearestList] = useState<NearestPlace[]>([])
   const [showSheet, setShowSheet] = useState(false)
@@ -209,6 +212,27 @@ export default function KakaoMap() {
     setNearestList(withDistance.slice(0, 5))
   }
 
+  function placeUserMarker(lat: number, lng: number) {
+    if (!mapRef.current) return
+    const map = mapRef.current
+    const moveLatLon = new window.kakao.maps.LatLng(lat, lng)
+    map.setCenter(moveLatLon)
+    map.setLevel(4)
+
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setMap(null)
+    }
+
+    const userMarker = new window.kakao.maps.CustomOverlay({
+      position: moveLatLon,
+      content: '<div style="width:20px;height:20px;background:#1976d2;border:4px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>',
+      yAnchor: 0.5,
+      xAnchor: 0.5,
+    })
+    userMarker.setMap(map)
+    userMarkerRef.current = userMarker
+  }
+
   function findMyLocation() {
     setLocating(true)
 
@@ -223,27 +247,9 @@ export default function KakaoMap() {
         const lat = position.coords.latitude
         const lng = position.coords.longitude
         setUserLocation({ lat: lat, lng: lng })
+        setSearchedLocation(null)
 
-        if (mapRef.current) {
-          const map = mapRef.current
-          const moveLatLon = new window.kakao.maps.LatLng(lat, lng)
-          map.setCenter(moveLatLon)
-          map.setLevel(4)
-
-          if (userMarkerRef.current) {
-            userMarkerRef.current.setMap(null)
-          }
-
-          const userMarker = new window.kakao.maps.CustomOverlay({
-            position: moveLatLon,
-            content: '<div style="width:20px;height:20px;background:#1976d2;border:4px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>',
-            yAnchor: 0.5,
-            xAnchor: 0.5,
-          })
-          userMarker.setMap(map)
-          userMarkerRef.current = userMarker
-        }
-
+        placeUserMarker(lat, lng)
         calculateNearest(lat, lng)
         const score = calculateSafetyScore(lat, lng, emergencyRooms, pharmacies)
         setSafetyScore(score)
@@ -257,6 +263,17 @@ export default function KakaoMap() {
       },
       { enableHighAccuracy: true, timeout: 10000 }
     )
+  }
+
+  function onSelectAddress(result: AddressResult) {
+    setSearchedLocation({ lat: result.lat, lng: result.lng, name: result.placeName })
+    setUserLocation({ lat: result.lat, lng: result.lng })
+
+    placeUserMarker(result.lat, result.lng)
+    calculateNearest(result.lat, result.lng)
+    const score = calculateSafetyScore(result.lat, result.lng, emergencyRooms, pharmacies)
+    setSafetyScore(score)
+    setShowSheet(true)
   }
 
   useEffect(function () {
@@ -338,21 +355,23 @@ export default function KakaoMap() {
         </div>
       </div>
 
+      <AddressSearch onSelect={onSelectAddress} />
+
       {safetyScore && (
-        <div onClick={openScoreDetail} style={{ position: 'absolute', top: 90, left: 16, padding: '12px 16px', background: '#fff', borderRadius: 16, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, border: '2px solid ' + getGradeColor(safetyScore.grade) }}>
+        <div onClick={openScoreDetail} style={{ position: 'absolute', top: 140, left: 16, padding: '12px 16px', background: '#fff', borderRadius: 16, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, border: '2px solid ' + getGradeColor(safetyScore.grade) }}>
           <div style={{ width: 48, height: 48, borderRadius: '50%', background: getGradeColor(safetyScore.grade), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 800 }}>{safetyScore.grade}</div>
           <div>
-            <div style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>광주든든 안심점수</div>
+            <div style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>{searchedLocation ? searchedLocation.name : '내 위치'} 안심점수</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: '#333', lineHeight: 1 }}>{safetyScore.total}<span style={{ fontSize: 13, color: '#888', fontWeight: 500 }}>점</span></div>
             <div style={{ fontSize: 11, color: getGradeColor(safetyScore.grade), fontWeight: 700, marginTop: 2 }}>{getGradeDescription(safetyScore.grade)} · 자세히 보기 ›</div>
           </div>
         </div>
       )}
 
-      <button onClick={findMyLocation} disabled={locating || loading} title="내 위치 찾기" style={{ position: 'absolute', top: 100, right: 16, width: 56, height: 56, borderRadius: '50%', border: 'none', background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 24, cursor: locatingCursor, zIndex: 10, opacity: buttonOpacity }}>{locatingIcon}</button>
+      <button onClick={findMyLocation} disabled={locating || loading} title="내 위치 찾기" style={{ position: 'absolute', top: 140, right: 16, width: 56, height: 56, borderRadius: '50%', border: 'none', background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 24, cursor: locatingCursor, zIndex: 10, opacity: buttonOpacity }}>{locatingIcon}</button>
 
       {districtScores.length > 0 && (
-        <button onClick={openDistrictCompare} title="광주 5개 자치구 비교" style={{ position: 'absolute', top: 168, right: 16, width: 56, height: 56, borderRadius: '50%', border: 'none', background: '#FF8C42', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 22, color: '#fff', cursor: 'pointer', zIndex: 10 }}>📊</button>
+        <button onClick={openDistrictCompare} title="광주 5개 자치구 비교" style={{ position: 'absolute', top: 208, right: 16, width: 56, height: 56, borderRadius: '50%', border: 'none', background: '#FF8C42', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 22, color: '#fff', cursor: 'pointer', zIndex: 10 }}>📊</button>
       )}
 
       <div style={{ position: 'absolute', bottom: bottomBarPosition, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8, padding: 6, background: '#fff', borderRadius: 999, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, transition: 'bottom 0.3s' }}>

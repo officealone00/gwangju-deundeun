@@ -87,3 +87,53 @@ export async function fetchGwangjuPharmacies(): Promise<Pharmacy[]> {
 
   return allPharmacies
 }
+// ==================== 주소 검색 API ====================
+
+const KAKAO_REST_KEY = import.meta.env.VITE_KAKAO_REST_KEY
+
+export interface AddressResult {
+  placeName: string      // 장소명/건물명
+  addressName: string    // 도로명 주소
+  category: string       // 카테고리 (예: "행정동", "병원", "공원")
+  lat: number
+  lng: number
+}
+
+/**
+ * 카카오 키워드 검색 (광주 지역 한정)
+ */
+export async function searchAddress(keyword: string): Promise<AddressResult[]> {
+  if (!keyword.trim()) return []
+
+  // 광주 한정 검색을 위해 "광주" 키워드 자동 추가
+  const query = keyword.includes('광주') ? keyword : `광주 ${keyword}`
+  
+  const url = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=10`
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `KakaoAK ${KAKAO_REST_KEY}`,
+      },
+    })
+
+    if (!response.ok) {
+      console.error('카카오 검색 API 오류:', response.status)
+      return []
+    }
+
+    const data = await response.json()
+    const documents = data?.documents || []
+
+    return documents.map((doc: any) => ({
+      placeName: doc.place_name || '',
+      addressName: doc.road_address_name || doc.address_name || '',
+      category: doc.category_group_name || doc.category_name?.split('>').pop()?.trim() || '',
+      lat: parseFloat(doc.y) || 0,
+      lng: parseFloat(doc.x) || 0,
+    })).filter((r: AddressResult) => r.lat > 0 && r.lng > 0)
+  } catch (error) {
+    console.error('주소 검색 실패:', error)
+    return []
+  }
+}
