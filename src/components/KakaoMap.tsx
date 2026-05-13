@@ -328,9 +328,14 @@ export default function KakaoMap() {
     <div style={{ position: 'relative', width: '100%', height: '100vh' }}>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '16px 20px 24px', background: 'linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0) 100%)', zIndex: 10 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#FF8C42' }}>광주든든</h1>
-        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>어르신·1인가구 안심돌봄 {headerStatus}</p>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 'max(env(safe-area-inset-top), 16px) 20px 24px', background: 'linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0) 100%)', zIndex: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img src="/gwangju-deundeun/favicon.png" alt="광주든든" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#FF8C42', lineHeight: 1 }}>광주든든</h1>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#666' }}>어르신·1인가구 안심돌봄 {headerStatus}</p>
+          </div>
+        </div>
       </div>
 
       {safetyScore && (
