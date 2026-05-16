@@ -39,7 +39,7 @@ function DistrictRow(props: RowProps) {
           </div>
           <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{ds.district.description}</div>
         </div>
-        <div style={{ textAlign: 'right' }}>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
             <span style={{ fontSize: 22, fontWeight: 800, color: color }}>{score.total}</span>
             <span style={{ fontSize: 12, color: '#888' }}>점</span>
@@ -76,14 +76,14 @@ export default function DistrictCompareModal(props: Props) {
   }
 
   return (
-    <div onClick={handleBgClick} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={handleContentClick} style={{ background: '#fff', borderRadius: 20, padding: 20, maxWidth: 440, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-          <div>
+    <div onClick={handleBgClick} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={handleContentClick} style={{ background: '#fff', borderRadius: 20, padding: 20, maxWidth: 440, width: '100%', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4, gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>광주든든 안심점수</div>
             <h2 style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 800, color: '#333' }}>광주 5개 자치구 비교</h2>
           </div>
-          <button onClick={props.onClose} style={{ border: 'none', background: 'none', fontSize: 22, cursor: 'pointer', color: '#999', padding: 0, lineHeight: 1 }}>✕</button>
+          <button onClick={props.onClose} style={{ border: 'none', background: 'none', fontSize: 22, cursor: 'pointer', color: '#999', padding: 0, lineHeight: 1, flexShrink: 0 }}>✕</button>
         </div>
 
         <div style={{ fontSize: 12, color: '#888', marginBottom: 16, lineHeight: 1.5 }}>
