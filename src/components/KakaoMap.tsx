@@ -835,25 +835,45 @@ export default function KakaoMap() {
     if (!mapRef.current) return
     const map = mapRef.current
     const position = new window.kakao.maps.LatLng(stop.lat, stop.lng)
-    map.setCenter(position)
-    map.setLevel(3)
-    setBusRouteTarget(null)
 
-    // 정류장 토글 자동으로 켜기 (정류장 마커가 보이게)
+    // 1) 정류장 토글 자동으로 켜기 (정류장 마커가 보이게)
     setLayers(function (prev) {
       if (prev.busStop) return prev
       return { ...prev, busStop: true }
     })
 
-    // 임시 강조 마커 (정류장 토글 마커 그려질 때까지 보이게)
+    // 2) 임시 강조 마커 (눈에 잘 띄는 크고 보라색)
+    const tempPinSvg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="56" viewBox="0 0 40 56">' +
+        // 그림자
+        '<ellipse cx="20" cy="53" rx="8" ry="2" fill="rgba(0,0,0,0.3)"/>' +
+        // 방울 본체 (큰 보라색)
+        '<path d="M20 2 C9 2 2 10 2 20 C2 30 11 38 20 53 C29 38 38 30 38 20 C38 10 31 2 20 2 Z" ' +
+          'fill="#9C27B0" stroke="white" stroke-width="2.5"/>' +
+        // 안쪽 흰 원
+        '<circle cx="20" cy="20" r="8" fill="white"/>' +
+        // 가운데 점
+        '<circle cx="20" cy="20" r="4" fill="#9C27B0"/>' +
+      '</svg>'
+
+    const tempMarkerImage = new window.kakao.maps.MarkerImage(
+      'data:image/svg+xml;utf8,' + encodeURIComponent(tempPinSvg),
+      new window.kakao.maps.Size(40, 56),
+      { offset: new window.kakao.maps.Point(20, 53) }
+    )
+
     const tempMarker = new window.kakao.maps.Marker({
       position: position,
-      image: createPinMarkerImage('#1976D2'),
-      zIndex: 999,
+      image: tempMarkerImage,
+      zIndex: 9999,
     })
     tempMarker.setMap(map)
 
-    // 인포윈도우 즉시 표시
+    // 3) 지도 이동 (마커 먼저 그린 후)
+    map.setLevel(3)
+    map.setCenter(position)
+
+    // 4) 인포윈도우 즉시 표시
     if (sharedInfowindowRef.current) {
       const iw = sharedInfowindowRef.current
       iw.setContent(buildBusStopLoadingContent(stop))
@@ -865,10 +885,15 @@ export default function KakaoMap() {
       })
     }
 
-    // 5초 후 임시 마커 제거 (그때쯤 정류장 토글 마커가 그려져 있을 것)
+    // 5) 그 다음에 모달 닫기 (마커가 화면에 보장된 후)
+    setTimeout(function () {
+      setBusRouteTarget(null)
+    }, 100)
+
+    // 6) 8초 후 임시 마커 제거 (정식 정류장 마커가 자리잡을 시간)
     setTimeout(function () {
       tempMarker.setMap(null)
-    }, 5000)
+    }, 8000)
   }
 
   // ── 전역 등록 (인포윈도우 HTML 안 버튼에서 호출) ──────────
