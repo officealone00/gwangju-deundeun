@@ -380,13 +380,7 @@ export default function KakaoMap() {
 
     // 🚌 정류장 마커 (클러스터러)
     if (layers.busStop && busStops.length > 0) {
-      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="#1976D2" stroke="white" stroke-width="2"/></svg>'
-      const stopMarkerSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg)
-      const stopMarkerImage = new window.kakao.maps.MarkerImage(
-        stopMarkerSrc,
-        new window.kakao.maps.Size(14, 14),
-        { offset: new window.kakao.maps.Point(7, 7) }
-      )
+      const stopMarkerImage = createPinMarkerImage('#1976D2')
 
       const stopMarkers = busStops.map(function (stop) {
         const position = new window.kakao.maps.LatLng(stop.lat, stop.lng)
@@ -454,13 +448,7 @@ export default function KakaoMap() {
         })
         if (filtered.length === 0) return null
 
-        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="' + color + '" stroke="white" stroke-width="2"/></svg>'
-        const markerSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg)
-        const markerImage = new window.kakao.maps.MarkerImage(
-          markerSrc,
-          new window.kakao.maps.Size(14, 14),
-          { offset: new window.kakao.maps.Point(7, 7) }
-        )
+        const markerImage = createPinMarkerImage(color)
 
         const markers = filtered.map(function (spot) {
           const position = new window.kakao.maps.LatLng(spot.lat, spot.lng)
@@ -1016,4 +1004,32 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+// ──────────────────────────────────────────────────────
+// 방울 핀 모양 마커 이미지 생성 (카카오 기본 마커와 비슷한 모양, 색상 커스텀)
+// 24×34 픽셀, 뾰족한 끝이 좌표 위치를 가리킴
+// ──────────────────────────────────────────────────────
+function createPinMarkerImage(color: string): any {
+  // 방울 모양 SVG: 위는 원형, 아래는 뾰족한 핀 + 작은 흰 원 안에 점
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="34" viewBox="0 0 24 34">' +
+      // 그림자
+      '<ellipse cx="12" cy="32" rx="5" ry="1.5" fill="rgba(0,0,0,0.25)"/>' +
+      // 방울 본체 (path로 핀 모양 그리기)
+      '<path d="M12 1 C5.4 1 1 6 1 11.5 C1 17 6 22 12 31 C18 22 23 17 23 11.5 C23 6 18.6 1 12 1 Z" ' +
+        'fill="' + color + '" stroke="white" stroke-width="1.5"/>' +
+      // 안쪽 흰 원
+      '<circle cx="12" cy="11" r="4" fill="white"/>' +
+    '</svg>'
+
+  const src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg)
+  return new (window as any).kakao.maps.MarkerImage(
+    src,
+    new (window as any).kakao.maps.Size(24, 34),
+    {
+      // 뾰족한 끝(아래 중앙)이 좌표 지점 (offset = (가로/2, 세로))
+      offset: new (window as any).kakao.maps.Point(12, 32),
+    }
+  )
 }
