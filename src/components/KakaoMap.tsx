@@ -32,6 +32,7 @@ import {
   markVisited,
 } from '../utils/userPresets'
 import PresetModal from './PresetModal'
+import BusRouteModal from './BusRouteModal'
 import { getDistance, formatDistance, walkingMinutes } from '../utils/geo'
 import AddressSearch from './AddressSearch'
 import WeatherBadge from './WeatherBadge'
@@ -257,6 +258,13 @@ export default function KakaoMap() {
     distance: number
   } | null>(null)
 
+  // 버스 길찾기 모달
+  const [busRouteTarget, setBusRouteTarget] = useState<{
+    name: string
+    lat: number
+    lng: number
+  } | null>(null)
+
   // 사용자 프리셋 (토글 순서 결정)
   const [presetId, setPresetId] = useState<PresetId | null>(null)
   const [customOrder, setCustomOrder] = useState<string[] | null>(null)
@@ -279,7 +287,7 @@ export default function KakaoMap() {
     }
   }, [])
 
-  const anyModalOpen = showWeatherDetail || showPresetModal
+  const anyModalOpen = showWeatherDetail || showPresetModal || !!busRouteTarget
 
   const weatherLat = userLocation?.lat || GWANGJU_CENTER.lat
   const weatherLng = userLocation?.lng || GWANGJU_CENTER.lng
@@ -809,12 +817,38 @@ export default function KakaoMap() {
     setRouteInfo(null)
   }
 
+  // ── 🚌 버스 길찾기 모달 열기 (광주 BIS 활용) ───────────────
+  async function openBusRoute(name: string, lat: number, lng: number) {
+    if (!userLocation) {
+      alert('현재 위치를 먼저 찾아주세요. 📍 버튼을 눌러주세요.')
+      return
+    }
+    // 정류장 데이터가 아직 안 불러와졌으면 먼저 불러오기
+    if (busStops.length === 0) {
+      await ensureBusStopsLoaded()
+    }
+    setBusRouteTarget({ name: name, lat: lat, lng: lng })
+  }
+
+  // ── 정류장 클릭 시 (모달에서) 지도 이동 ─────────────────
+  function onBusStopClick(stop: any) {
+    if (!mapRef.current) return
+    const map = mapRef.current
+    const position = new window.kakao.maps.LatLng(stop.lat, stop.lng)
+    map.setCenter(position)
+    map.setLevel(3)
+    setBusRouteTarget(null)
+  }
+
   // ── 전역 등록 (인포윈도우 HTML 안 버튼에서 호출) ──────────
   useEffect(function () {
     ;(window as any).__gwangjuDeundeunDrawRoute = function (name: string, lat: number, lng: number) {
       drawRouteLine(name, lat, lng)
     }
-  }, [userLocation])
+    ;(window as any).__gwangjuDeundeunOpenBusRoute = function (name: string, lat: number, lng: number) {
+      openBusRoute(name, lat, lng)
+    }
+  }, [userLocation, busStops])
 
 
   // ── 📍 내 위치 찾기 ──────────────────────────────────────
@@ -1150,6 +1184,21 @@ export default function KakaoMap() {
         onClose={onClosePresetModal}
         showCloseButton={!isFirstVisit}
       />
+
+      {/* 🚌 버스 길찾기 모달 (광주 BIS 활용) */}
+      {busRouteTarget && userLocation && (
+        <BusRouteModal
+          isOpen={true}
+          fromLat={userLocation.lat}
+          fromLng={userLocation.lng}
+          toName={busRouteTarget.name}
+          toLat={busRouteTarget.lat}
+          toLng={busRouteTarget.lng}
+          allBusStops={busStops}
+          onClose={function () { setBusRouteTarget(null) }}
+          onStopClick={onBusStopClick}
+        />
+      )}
     </div>
   )
 }
@@ -1313,26 +1362,25 @@ function buildLandmarkContent(item: Landmark): string {
 }
 
 // ──────────────────────────────────────────────────────
-// 🚖 길찾기 버튼 (사이트 안 경로 + 카카오맵 외부 연결)
-// 1) 지도에 경로 보기 (직선 라인, 사이트 안)
-// 2) 카카오맵으로 정밀 안내 (외부 연결)
+// 🚖 길찾기 버튼 (사이트 안 직선 라인 + 광주 BIS 버스 길찾기)
+// 1) 지도에 직선 경로 보기 (위치 인식만, 사이트 안)
+// 2) 🚌 버스로 가는 길 (광주 BIS 정류장 + 실시간 도착정보)
 // ──────────────────────────────────────────────────────
-function buildRouteButton(name: string, lat: number, lng: number, color: string): string {
-  const url = 'https://map.kakao.com/link/to/' + encodeURIComponent(name) + ',' + lat + ',' + lng
+function buildRouteButton(name: string, lat: number, lng: number, _color: string): string {
   const safeName = escapeHtml(name).replace(/'/g, '&#39;')
 
   return (
     '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
-      // 1) 사이트 안 직선 경로 보기 버튼 (보라색)
+      // 1) 사이트 안 직선 경로 보기 (보라색)
       '<button onclick="window.__gwangjuDeundeunDrawRoute&&window.__gwangjuDeundeunDrawRoute(\'' + safeName + '\',' + lat + ',' + lng + ')" ' +
         'style="display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:8px 12px;background:#9C27B0;color:#fff;border:none;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;">' +
-        '📍 경로 보기' +
+        '📍 거리 보기' +
       '</button>' +
-      // 2) 카카오맵으로 정밀 안내 (기존 색)
-      '<a href="' + url + '" target="_blank" rel="noopener noreferrer" ' +
-        'style="display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:8px 12px;background:' + color + ';color:#fff;border-radius:999px;font-size:12px;font-weight:700;text-decoration:none;">' +
-        '🚖 카카오맵' +
-      '</a>' +
+      // 2) 광주 BIS 버스 길찾기 (광주든든의 차별점!)
+      '<button onclick="window.__gwangjuDeundeunOpenBusRoute&&window.__gwangjuDeundeunOpenBusRoute(\'' + safeName + '\',' + lat + ',' + lng + ')" ' +
+        'style="display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:8px 12px;background:#1976D2;color:#fff;border:none;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;">' +
+        '🚌 버스로 가기' +
+      '</button>' +
     '</div>'
   )
 }
