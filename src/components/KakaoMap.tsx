@@ -830,7 +830,7 @@ export default function KakaoMap() {
     setBusRouteTarget({ name: name, lat: lat, lng: lng })
   }
 
-  // ── 정류장 클릭 시 (모달에서) 지도 이동 ─────────────────
+  // ── 정류장 클릭 시 (모달에서) 지도 이동 + 임시 강조 마커 ───
   function onBusStopClick(stop: any) {
     if (!mapRef.current) return
     const map = mapRef.current
@@ -838,6 +838,37 @@ export default function KakaoMap() {
     map.setCenter(position)
     map.setLevel(3)
     setBusRouteTarget(null)
+
+    // 정류장 토글 자동으로 켜기 (정류장 마커가 보이게)
+    setLayers(function (prev) {
+      if (prev.busStop) return prev
+      return { ...prev, busStop: true }
+    })
+
+    // 임시 강조 마커 (정류장 토글 마커 그려질 때까지 보이게)
+    const tempMarker = new window.kakao.maps.Marker({
+      position: position,
+      image: createPinMarkerImage('#1976D2'),
+      zIndex: 999,
+    })
+    tempMarker.setMap(map)
+
+    // 인포윈도우 즉시 표시
+    if (sharedInfowindowRef.current) {
+      const iw = sharedInfowindowRef.current
+      iw.setContent(buildBusStopLoadingContent(stop))
+      iw.open(map, tempMarker)
+
+      // 도착정보 비동기 로드
+      fetchBusArrivals(stop.stopId).then(function (arrivals) {
+        iw.setContent(buildBusStopContent(stop, arrivals))
+      })
+    }
+
+    // 5초 후 임시 마커 제거 (그때쯤 정류장 토글 마커가 그려져 있을 것)
+    setTimeout(function () {
+      tempMarker.setMap(null)
+    }, 5000)
   }
 
   // ── 전역 등록 (인포윈도우 HTML 안 버튼에서 호출) ──────────
