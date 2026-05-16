@@ -76,8 +76,8 @@ export default function DistrictCompareModal(props: Props) {
   }
 
   return (
-    <div onClick={handleBgClick} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px 24px' }}>
-      <div onClick={handleContentClick} style={{ background: '#fff', borderRadius: 20, padding: 18, maxWidth: 360, width: '100%', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.4)', position: 'relative' }}>
+    <div onClick={handleBgClick} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px 56px' }}>
+      <div onClick={handleContentClick} style={{ background: '#fff', borderRadius: 20, padding: 18, maxWidth: 320, width: '100%', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.4)', position: 'relative' }}>
         {/* 닫기 ✕ 버튼 - 둥근 회색 배경 */}
         <button onClick={props.onClose} style={{ position: 'absolute', top: 12, right: 12, width: 36, height: 36, border: 'none', background: '#f0f0f0', borderRadius: '50%', fontSize: 18, cursor: 'pointer', color: '#666', padding: 0, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, zIndex: 1 }}>✕</button>
 
