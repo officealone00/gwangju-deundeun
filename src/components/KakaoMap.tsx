@@ -38,17 +38,29 @@ interface LayerConfig {
 }
 
 const LAYER_CONFIGS: LayerConfig[] = [
-  { id: 'emergency', emoji: '🏥', label: '응급실', color: '#FF3B30', enabled: true },
-  { id: 'pharmacy',  emoji: '💊', label: '약국',   color: '#4CAF50', enabled: true },
-  { id: 'busStop',   emoji: '🚌', label: '정류장', color: '#1976D2', enabled: true },
-  { id: 'tourism',   emoji: '🌸', label: '관광',   color: '#E91E63', enabled: true },
+  { id: 'emergency', emoji: '🏥', label: '응급실',   color: '#FF3B30', enabled: true },
+  { id: 'pharmacy',  emoji: '💊', label: '약국',     color: '#4CAF50', enabled: true },
+  { id: 'busStop',   emoji: '🚌', label: '정류장',   color: '#1976D2', enabled: true },
+  { id: 'tourism',   emoji: '🌸', label: '관광',     color: '#E91E63', enabled: true },
+  { id: 'food',      emoji: '🍲', label: '음식',     color: '#FF8C42', enabled: true },
+  { id: 'shopping',  emoji: '🛍️', label: '쇼핑·숙박', color: '#795548', enabled: true },
 ]
+
+// 카테고리 ID → 토글 매핑 (TourAPI contentTypeId 기준)
+// 12 관광지, 14 문화시설, 15 축제, 25 여행코스, 28 레포츠 → 관광
+// 32 숙박, 38 쇼핑 → 쇼핑·숙박
+// 39 음식점 → 음식
+const TOURISM_LAYER_IDS = [12, 14, 15, 25, 28]
+const FOOD_LAYER_IDS = [39]
+const SHOPPING_LAYER_IDS = [32, 38]
 
 interface LayerState {
   emergency: boolean
   pharmacy: boolean
   busStop: boolean
   tourism: boolean
+  food: boolean
+  shopping: boolean
 }
 
 const INITIAL_LAYERS: LayerState = {
@@ -56,11 +68,13 @@ const INITIAL_LAYERS: LayerState = {
   pharmacy: false,
   busStop: false,
   tourism: false,
+  food: false,
+  shopping: false,
 }
 
 // ── NearestPlace ───────────────────────────────────────
 interface NearestPlace {
-  type: 'emergency' | 'pharmacy' | 'busStop' | 'tourism'
+  type: 'emergency' | 'pharmacy' | 'busStop' | 'tourism' | 'food' | 'shopping'
   name: string
   addr: string
   tel?: string
@@ -68,7 +82,7 @@ interface NearestPlace {
   lng: number
   distance: number
   stopId?: number
-  // 관광지 전용
+  // 관광지/음식/쇼핑 공통
   category?: string
   emoji?: string
   thumbnail?: string
@@ -140,7 +154,15 @@ function NearestItem(props: NearestItemProps) {
     }
   }
 
-  const showThumbnail = place.type === 'tourism' && place.thumbnail && !imgError
+  const isTourismLike = place.type === 'tourism' || place.type === 'food' || place.type === 'shopping'
+  const showThumbnail = isTourismLike && place.thumbnail && !imgError
+
+  // 타입별 강조색
+  const categoryColor =
+    place.type === 'food' ? '#FF8C42' :
+    place.type === 'shopping' ? '#795548' :
+    place.type === 'tourism' ? '#E91E63' :
+    '#1976d2'
 
   return (
     <div onClick={onClickRow} style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -152,7 +174,7 @@ function NearestItem(props: NearestItemProps) {
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: '#333', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {place.type === 'tourism' && place.emoji ? place.emoji + ' ' : ''}
+          {isTourismLike && place.emoji ? place.emoji + ' ' : ''}
           {place.name}
         </div>
         <div style={{ fontSize: 12, color: '#888' }}>📍 {formatDistance(place.distance)} · 도보 약 {walkingMinutes(place.distance)}분</div>
@@ -161,8 +183,8 @@ function NearestItem(props: NearestItemProps) {
             🚌 {arrivalText}
           </div>
         )}
-        {place.type === 'tourism' && place.category && (
-          <div style={{ fontSize: 11, color: '#E91E63', marginTop: 4, fontWeight: 600 }}>
+        {isTourismLike && place.category && (
+          <div style={{ fontSize: 11, color: categoryColor, marginTop: 4, fontWeight: 600 }}>
             {place.category}
           </div>
         )}
@@ -171,8 +193,8 @@ function NearestItem(props: NearestItemProps) {
       {(place.type === 'emergency' || place.type === 'pharmacy') && place.tel && (
         <a href={telHref} onClick={onClickPhone} style={{ padding: '8px 12px', background: '#1976d2', color: '#fff', borderRadius: 999, fontSize: 12, fontWeight: 700, textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>📞 전화</a>
       )}
-      {place.type === 'tourism' && place.tel && (
-        <a href={telHref} onClick={onClickPhone} style={{ padding: '8px 12px', background: '#E91E63', color: '#fff', borderRadius: 999, fontSize: 12, fontWeight: 700, textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>📞 전화</a>
+      {isTourismLike && place.tel && (
+        <a href={telHref} onClick={onClickPhone} style={{ padding: '8px 12px', background: categoryColor, color: '#fff', borderRadius: 999, fontSize: 12, fontWeight: 700, textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>📞 전화</a>
       )}
     </div>
   )
@@ -184,7 +206,11 @@ export default function KakaoMap() {
   const markersRef = useRef<any[]>([])
   const busClustererRef = useRef<any>(null)
   const tourismClustererRef = useRef<any>(null)
+  const foodClustererRef = useRef<any>(null)
+  const shoppingClustererRef = useRef<any>(null)
   const userMarkerRef = useRef<any>(null)
+  // 공용 인포윈도우 (4종 마커 공유) — 동시 표시 방지 + 메모리 절약
+  const sharedInfowindowRef = useRef<any>(null)
 
   const [emergencyRooms, setEmergencyRooms] = useState<EmergencyRoom[]>([])
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([])
@@ -222,6 +248,27 @@ export default function KakaoMap() {
           level: 7,
         }
         mapRef.current = new window.kakao.maps.Map(mapContainerRef.current, options)
+
+        // 공용 인포윈도우 생성 (커스텀 X 버튼 사용하므로 removable: false)
+        sharedInfowindowRef.current = new window.kakao.maps.InfoWindow({
+          content: '',
+          removable: false,
+          zIndex: 100,
+        })
+
+        // 전역 닫기 함수 등록 (인포윈도우 HTML 안 X 버튼에서 호출)
+        ;(window as any).__gwangjuDeundeunCloseInfo = function () {
+          if (sharedInfowindowRef.current) {
+            sharedInfowindowRef.current.close()
+          }
+        }
+
+        // 지도 빈 곳 클릭 시 인포윈도우 자동 닫기
+        window.kakao.maps.event.addListener(mapRef.current, 'click', function () {
+          if (sharedInfowindowRef.current) {
+            sharedInfowindowRef.current.close()
+          }
+        })
       })
     }
 
@@ -283,6 +330,20 @@ export default function KakaoMap() {
       tourismClustererRef.current = null
     }
 
+    // 음식 클러스터러 제거
+    if (foodClustererRef.current) {
+      foodClustererRef.current.clear()
+      foodClustererRef.current.setMap(null)
+      foodClustererRef.current = null
+    }
+
+    // 쇼핑·숙박 클러스터러 제거
+    if (shoppingClustererRef.current) {
+      shoppingClustererRef.current.clear()
+      shoppingClustererRef.current.setMap(null)
+      shoppingClustererRef.current = null
+    }
+
     const map = mapRef.current
 
     // 응급실 마커
@@ -293,18 +354,10 @@ export default function KakaoMap() {
         marker.setMap(map)
         markersRef.current.push(marker)
 
-        const tel = item.dutyTel1 || '전화번호 없음'
-        const content =
-          '<div style="padding:12px 16px;min-width:220px;font-family:sans-serif;">' +
-          '<div style="font-size:14px;font-weight:700;color:#d32f2f;margin-bottom:6px;">🏥 ' + item.dutyName + '</div>' +
-          '<div style="font-size:12px;color:#555;line-height:1.5;">' +
-          item.dutyAddr + '<br/>' +
-          '📞 <a href="tel:' + item.dutyTel1 + '" style="color:#1976d2;text-decoration:none;">' + tel + '</a>' +
-          '</div></div>'
-
-        const infowindow = new window.kakao.maps.InfoWindow({ content: content })
         window.kakao.maps.event.addListener(marker, 'click', function () {
-          infowindow.open(map, marker)
+          if (!sharedInfowindowRef.current) return
+          sharedInfowindowRef.current.setContent(buildEmergencyContent(item))
+          sharedInfowindowRef.current.open(map, marker)
         })
       })
     }
@@ -317,18 +370,10 @@ export default function KakaoMap() {
         marker.setMap(map)
         markersRef.current.push(marker)
 
-        const tel = item.dutyTel1 || '전화번호 없음'
-        const content =
-          '<div style="padding:12px 16px;min-width:220px;font-family:sans-serif;">' +
-          '<div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:6px;">💊 ' + item.dutyName + '</div>' +
-          '<div style="font-size:12px;color:#555;line-height:1.5;">' +
-          item.dutyAddr + '<br/>' +
-          '📞 <a href="tel:' + item.dutyTel1 + '" style="color:#1976d2;text-decoration:none;">' + tel + '</a>' +
-          '</div></div>'
-
-        const infowindow = new window.kakao.maps.InfoWindow({ content: content })
         window.kakao.maps.event.addListener(marker, 'click', function () {
-          infowindow.open(map, marker)
+          if (!sharedInfowindowRef.current) return
+          sharedInfowindowRef.current.setContent(buildPharmacyContent(item))
+          sharedInfowindowRef.current.open(map, marker)
         })
       })
     }
@@ -351,15 +396,22 @@ export default function KakaoMap() {
           title: stop.stopName,
         })
 
-        const infowindow = new window.kakao.maps.InfoWindow({
-          content: buildBusStopLoadingContent(stop),
-          removable: true,
-        })
-
         window.kakao.maps.event.addListener(marker, 'click', function () {
-          infowindow.open(map, marker)
+          if (!sharedInfowindowRef.current) return
+          const iw = sharedInfowindowRef.current
+
+          // 클릭한 정류장 ID 기록 (race condition 방지)
+          iw.__currentStopId = stop.stopId
+
+          // 즉시 로딩 표시
+          iw.setContent(buildBusStopLoadingContent(stop))
+          iw.open(map, marker)
+
+          // 도착정보 비동기 로드
           fetchBusArrivals(stop.stopId).then(function (arrivals) {
-            infowindow.setContent(buildBusStopContent(stop, arrivals))
+            // 사용자가 그 사이 다른 마커 눌렀으면 무시
+            if (iw.__currentStopId !== stop.stopId) return
+            iw.setContent(buildBusStopContent(stop, arrivals))
           })
         })
 
@@ -389,59 +441,90 @@ export default function KakaoMap() {
       busClustererRef.current = clusterer
     }
 
-    // 🌸 관광지 마커 (클러스터러)
-    if (layers.tourism && tourismSpots.length > 0) {
-      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="#E91E63" stroke="white" stroke-width="2"/></svg>'
-      const tourismMarkerSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg)
-      const tourismMarkerImage = new window.kakao.maps.MarkerImage(
-        tourismMarkerSrc,
-        new window.kakao.maps.Size(14, 14),
-        { offset: new window.kakao.maps.Point(7, 7) }
-      )
+    // 🌸 관광 + 🍲 음식 + 🛍️ 쇼핑·숙박 마커 (3종 분리, 클러스터러)
+    // 카테고리별로 필터링 후 각각 별도 클러스터러로 표시
+    if ((layers.tourism || layers.food || layers.shopping) && tourismSpots.length > 0) {
+      const renderCategoryLayer = function (
+        catIds: number[],
+        color: string,
+        clustererBg: string
+      ) {
+        const filtered = tourismSpots.filter(function (spot) {
+          return catIds.indexOf(spot.categoryId) >= 0
+        })
+        if (filtered.length === 0) return null
 
-      const tourismMarkers = tourismSpots.map(function (spot) {
-        const position = new window.kakao.maps.LatLng(spot.lat, spot.lng)
-        const marker = new window.kakao.maps.Marker({
-          position: position,
-          image: tourismMarkerImage,
-          title: spot.title,
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="' + color + '" stroke="white" stroke-width="2"/></svg>'
+        const markerSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg)
+        const markerImage = new window.kakao.maps.MarkerImage(
+          markerSrc,
+          new window.kakao.maps.Size(14, 14),
+          { offset: new window.kakao.maps.Point(7, 7) }
+        )
+
+        const markers = filtered.map(function (spot) {
+          const position = new window.kakao.maps.LatLng(spot.lat, spot.lng)
+          const marker = new window.kakao.maps.Marker({
+            position: position,
+            image: markerImage,
+            title: spot.title,
+          })
+
+          window.kakao.maps.event.addListener(marker, 'click', function () {
+            if (!sharedInfowindowRef.current) return
+            sharedInfowindowRef.current.setContent(buildTourismContent(spot, color))
+            sharedInfowindowRef.current.open(map, marker)
+          })
+
+          return marker
         })
 
-        const infowindow = new window.kakao.maps.InfoWindow({
-          content: buildTourismContent(spot),
-          removable: true,
+        const clusterer = new window.kakao.maps.MarkerClusterer({
+          map: map,
+          averageCenter: true,
+          minLevel: 5,
+          gridSize: 60,
+          styles: [{
+            width: '40px',
+            height: '40px',
+            background: clustererBg,
+            borderRadius: '50%',
+            color: '#fff',
+            textAlign: 'center',
+            lineHeight: '40px',
+            fontSize: '13px',
+            fontWeight: '700',
+            border: '2px solid white',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+          }],
         })
+        clusterer.addMarkers(markers)
+        return clusterer
+      }
 
-        window.kakao.maps.event.addListener(marker, 'click', function () {
-          infowindow.open(map, marker)
-        })
-
-        return marker
-      })
-
-      const clusterer = new window.kakao.maps.MarkerClusterer({
-        map: map,
-        averageCenter: true,
-        minLevel: 5,
-        gridSize: 60,
-        styles: [{
-          width: '40px',
-          height: '40px',
-          background: 'rgba(233, 30, 99, 0.85)',
-          borderRadius: '50%',
-          color: '#fff',
-          textAlign: 'center',
-          lineHeight: '40px',
-          fontSize: '13px',
-          fontWeight: '700',
-          border: '2px solid white',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-        }],
-      })
-      clusterer.addMarkers(tourismMarkers)
-      tourismClustererRef.current = clusterer
+      if (layers.tourism) {
+        tourismClustererRef.current = renderCategoryLayer(
+          TOURISM_LAYER_IDS,
+          '#E91E63',
+          'rgba(233, 30, 99, 0.85)'
+        )
+      }
+      if (layers.food) {
+        foodClustererRef.current = renderCategoryLayer(
+          FOOD_LAYER_IDS,
+          '#FF8C42',
+          'rgba(255, 140, 66, 0.85)'
+        )
+      }
+      if (layers.shopping) {
+        shoppingClustererRef.current = renderCategoryLayer(
+          SHOPPING_LAYER_IDS,
+          '#795548',
+          'rgba(121, 85, 72, 0.85)'
+        )
+      }
     }
-  }, [layers.emergency, layers.pharmacy, layers.busStop, layers.tourism, emergencyRooms, pharmacies, busStops, tourismSpots])
+  }, [layers.emergency, layers.pharmacy, layers.busStop, layers.tourism, layers.food, layers.shopping, emergencyRooms, pharmacies, busStops, tourismSpots])
 
   // ── 토글 함수 ─────────────────────────────────────────────
   function toggleLayer(layerId: string) {
@@ -454,7 +537,8 @@ export default function KakaoMap() {
     // 첫 토글 시 lazy load 트리거
     if (layerId === 'busStop') {
       ensureBusStopsLoaded()
-    } else if (layerId === 'tourism') {
+    } else if (layerId === 'tourism' || layerId === 'food' || layerId === 'shopping') {
+      // 3종 모두 같은 TourAPI 데이터 사용
       ensureTourismLoaded()
     }
 
@@ -519,10 +603,21 @@ export default function KakaoMap() {
           stopId: stop.stopId,
         }
       })
-    } else if (activeLayerId === 'tourism') {
-      result = tourismSpots.map(function (spot) {
+    } else if (activeLayerId === 'tourism' || activeLayerId === 'food' || activeLayerId === 'shopping') {
+      // 카테고리 ID로 필터링
+      const filterIds =
+        activeLayerId === 'food' ? FOOD_LAYER_IDS :
+        activeLayerId === 'shopping' ? SHOPPING_LAYER_IDS :
+        TOURISM_LAYER_IDS
+
+      const filtered = tourismSpots.filter(function (spot) {
+        return filterIds.indexOf(spot.categoryId) >= 0
+      })
+
+      const typeName = activeLayerId as 'tourism' | 'food' | 'shopping'
+      result = filtered.map(function (spot) {
         return {
-          type: 'tourism' as const,
+          type: typeName,
           name: spot.title,
           addr: spot.addr,
           tel: spot.tel,
@@ -638,16 +733,24 @@ export default function KakaoMap() {
   const activeLayer = LAYER_CONFIGS.find(function (c) { return c.id === activeLayerId })
   const activeColor = activeLayer?.color || '#FF8C42'
 
-  // 현재 마커 수
+  // 현재 마커 수 (카테고리별 정확한 카운트)
+  const tourismCount = tourismSpots.filter(function (s) { return TOURISM_LAYER_IDS.indexOf(s.categoryId) >= 0 }).length
+  const foodCount = tourismSpots.filter(function (s) { return FOOD_LAYER_IDS.indexOf(s.categoryId) >= 0 }).length
+  const shoppingCount = tourismSpots.filter(function (s) { return SHOPPING_LAYER_IDS.indexOf(s.categoryId) >= 0 }).length
+
   const totalMarkers =
     (layers.emergency ? emergencyRooms.length : 0) +
     (layers.pharmacy ? pharmacies.length : 0) +
     (layers.busStop ? busStops.length : 0) +
-    (layers.tourism ? tourismSpots.length : 0)
+    (layers.tourism ? tourismCount : 0) +
+    (layers.food ? foodCount : 0) +
+    (layers.shopping ? shoppingCount : 0)
 
   const onLayers = LAYER_CONFIGS.filter(function (c) {
     return layers[c.id as keyof LayerState]
   })
+
+  const anyTourismLayerOn = layers.tourism || layers.food || layers.shopping
 
   let headerStatus = '· 로딩 중'
   if (!loading) {
@@ -655,7 +758,7 @@ export default function KakaoMap() {
       headerStatus = '· 좌측에서 보고 싶은 정보를 선택하세요'
     } else if (layers.busStop && busStopsLoading) {
       headerStatus = '· 정류장 불러오는 중...'
-    } else if (layers.tourism && tourismLoading) {
+    } else if (anyTourismLayerOn && tourismLoading) {
       headerStatus = '· 관광 정보 불러오는 중...'
     } else {
       headerStatus = '· ' + onLayers.map(function (l) { return l.emoji + l.label }).join(' ') + ' ' + totalMarkers + '개'
@@ -772,13 +875,12 @@ export default function KakaoMap() {
 // 정류장 인포윈도우 콘텐츠 빌더
 // ──────────────────────────────────────────────────────
 function buildBusStopLoadingContent(stop: BusStop): string {
-  return (
-    '<div style="padding:12px 14px;min-width:240px;max-width:300px;font-family:sans-serif;">' +
-      '<div style="font-size:14px;font-weight:700;color:#1976d2;margin-bottom:4px;">🚌 ' + escapeHtml(stop.stopName) + '</div>' +
-      (stop.arsId ? '<div style="font-size:11px;color:#888;margin-bottom:8px;">ARS ' + escapeHtml(stop.arsId) + '</div>' : '') +
-      '<div style="font-size:12px;color:#999;padding:8px 0;text-align:center;">⏳ 도착정보 불러오는 중...</div>' +
-    '</div>'
-  )
+  const body =
+    '<div style="font-size:14px;font-weight:700;color:#1976d2;margin-bottom:4px;padding-right:28px;">🚌 ' + escapeHtml(stop.stopName) + '</div>' +
+    (stop.arsId ? '<div style="font-size:11px;color:#888;margin-bottom:8px;">ARS ' + escapeHtml(stop.arsId) + '</div>' : '') +
+    '<div style="font-size:12px;color:#999;padding:8px 0;text-align:center;">⏳ 도착정보 불러오는 중...</div>'
+
+  return wrapWithClose(body, { minWidth: 240, maxWidth: 300 })
 }
 
 function buildBusStopContent(stop: BusStop, arrivals: BusArrival[]): string {
@@ -790,16 +892,13 @@ function buildBusStopContent(stop: BusStop, arrivals: BusArrival[]): string {
     })
 
   const header =
-    '<div style="font-size:14px;font-weight:700;color:#1976d2;margin-bottom:4px;">🚌 ' + escapeHtml(stop.stopName) + '</div>' +
+    '<div style="font-size:14px;font-weight:700;color:#1976d2;margin-bottom:4px;padding-right:28px;">🚌 ' + escapeHtml(stop.stopName) + '</div>' +
     (stop.arsId ? '<div style="font-size:11px;color:#888;margin-bottom:8px;">ARS ' + escapeHtml(stop.arsId) + '</div>' : '')
 
   if (sorted.length === 0) {
-    return (
-      '<div style="padding:12px 14px;min-width:240px;max-width:300px;font-family:sans-serif;">' +
-        header +
-        '<div style="font-size:12px;color:#999;padding:8px 0;text-align:center;">현재 도착 예정 버스가 없어요</div>' +
-      '</div>'
-    )
+    const body = header +
+      '<div style="font-size:12px;color:#999;padding:8px 0;text-align:center;">현재 도착 예정 버스가 없어요</div>'
+    return wrapWithClose(body, { minWidth: 240, maxWidth: 300 })
   }
 
   const rows = sorted.slice(0, 8).map(function (a) {
@@ -825,18 +924,15 @@ function buildBusStopContent(stop: BusStop, arrivals: BusArrival[]): string {
     )
   }).join('')
 
-  return (
-    '<div style="padding:12px 14px;min-width:260px;max-width:300px;font-family:sans-serif;">' +
-      header +
-      '<div style="max-height:240px;overflow-y:auto;">' + rows + '</div>' +
-    '</div>'
-  )
+  const body = header + '<div style="max-height:240px;overflow-y:auto;">' + rows + '</div>'
+  return wrapWithClose(body, { minWidth: 260, maxWidth: 300 })
 }
 
 // ──────────────────────────────────────────────────────
 // 🌸 관광지 인포윈도우 콘텐츠 빌더
 // ──────────────────────────────────────────────────────
-function buildTourismContent(spot: TouristSpot): string {
+function buildTourismContent(spot: TouristSpot, accentColor?: string): string {
+  const color = accentColor || '#E91E63'
   const imgUrl = spot.imageUrl || spot.thumbnail
   const imgSection = imgUrl
     ? '<img src="' + escapeHtml(imgUrl) + '" alt="' + escapeHtml(spot.title) + '" ' +
@@ -845,20 +941,70 @@ function buildTourismContent(spot: TouristSpot): string {
     : ''
 
   const telSection = spot.tel
-    ? '<div style="font-size:12px;color:#555;margin-top:6px;">📞 <a href="tel:' + escapeHtml(spot.tel) + '" style="color:#E91E63;text-decoration:none;font-weight:600;">' + escapeHtml(spot.tel) + '</a></div>'
+    ? '<div style="font-size:12px;color:#555;margin-top:6px;">📞 <a href="tel:' + escapeHtml(spot.tel) + '" style="color:' + color + ';text-decoration:none;font-weight:600;">' + escapeHtml(spot.tel) + '</a></div>'
     : ''
 
   const addrSection = spot.addr
     ? '<div style="font-size:12px;color:#666;line-height:1.5;">' + escapeHtml(spot.addr) + '</div>'
     : ''
 
+  const body =
+    imgSection +
+    '<div style="display:inline-block;font-size:11px;color:#fff;background:' + color + ';padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;">' + spot.emoji + ' ' + escapeHtml(spot.category) + '</div>' +
+    '<div style="font-size:14px;font-weight:700;color:#333;margin-bottom:6px;line-height:1.3;padding-right:28px;">' + escapeHtml(spot.title) + '</div>' +
+    addrSection +
+    telSection
+
+  return wrapWithClose(body, { minWidth: 240, maxWidth: 280 })
+}
+
+// ──────────────────────────────────────────────────────
+// 🏥 응급실 인포윈도우 콘텐츠 빌더
+// ──────────────────────────────────────────────────────
+function buildEmergencyContent(item: any): string {
+  const tel = item.dutyTel1 || '전화번호 없음'
+  const telHref = item.dutyTel1 ? '<a href="tel:' + escapeHtml(item.dutyTel1) + '" style="color:#1976d2;text-decoration:none;">' + escapeHtml(tel) + '</a>' : escapeHtml(tel)
+
+  const body =
+    '<div style="font-size:14px;font-weight:700;color:#d32f2f;margin-bottom:6px;padding-right:28px;">🏥 ' + escapeHtml(item.dutyName) + '</div>' +
+    '<div style="font-size:12px;color:#555;line-height:1.5;">' +
+      escapeHtml(item.dutyAddr || '') + '<br/>' +
+      '📞 ' + telHref +
+    '</div>'
+
+  return wrapWithClose(body, { minWidth: 220, maxWidth: 280 })
+}
+
+// ──────────────────────────────────────────────────────
+// 💊 약국 인포윈도우 콘텐츠 빌더
+// ──────────────────────────────────────────────────────
+function buildPharmacyContent(item: any): string {
+  const tel = item.dutyTel1 || '전화번호 없음'
+  const telHref = item.dutyTel1 ? '<a href="tel:' + escapeHtml(item.dutyTel1) + '" style="color:#1976d2;text-decoration:none;">' + escapeHtml(tel) + '</a>' : escapeHtml(tel)
+
+  const body =
+    '<div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:6px;padding-right:28px;">💊 ' + escapeHtml(item.dutyName) + '</div>' +
+    '<div style="font-size:12px;color:#555;line-height:1.5;">' +
+      escapeHtml(item.dutyAddr || '') + '<br/>' +
+      '📞 ' + telHref +
+    '</div>'
+
+  return wrapWithClose(body, { minWidth: 220, maxWidth: 280 })
+}
+
+// ──────────────────────────────────────────────────────
+// 공용 래퍼 - 큰 X 버튼 (44x44 모바일 터치 최적화) + 통일된 박스
+// ──────────────────────────────────────────────────────
+function wrapWithClose(innerHtml: string, opts: { minWidth: number; maxWidth: number }): string {
   return (
-    '<div style="padding:12px 14px;min-width:240px;max-width:280px;font-family:sans-serif;">' +
-      imgSection +
-      '<div style="display:inline-block;font-size:11px;color:#fff;background:#E91E63;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;">' + spot.emoji + ' ' + escapeHtml(spot.category) + '</div>' +
-      '<div style="font-size:14px;font-weight:700;color:#333;margin-bottom:6px;line-height:1.3;">' + escapeHtml(spot.title) + '</div>' +
-      addrSection +
-      telSection +
+    '<div style="position:relative;padding:14px 14px 12px;min-width:' + opts.minWidth + 'px;max-width:' + opts.maxWidth + 'px;font-family:sans-serif;">' +
+      // 큰 X 버튼 (44x44 영역, 모바일 손가락 친화)
+      '<button onclick="window.__gwangjuDeundeunCloseInfo&&window.__gwangjuDeundeunCloseInfo()" ' +
+        'aria-label="닫기" ' +
+        'style="position:absolute;top:0;right:0;width:44px;height:44px;border:none;background:transparent;cursor:pointer;font-size:20px;color:#999;line-height:1;padding:0;display:flex;align-items:center;justify-content:center;">' +
+        '<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#f0f0f0;font-weight:700;">✕</span>' +
+      '</button>' +
+      innerHtml +
     '</div>'
   )
 }
