@@ -7,16 +7,6 @@ import {
   type AddressResult,
 } from '../api/publicData'
 import { getDistance, formatDistance, walkingMinutes } from '../utils/geo'
-import {
-  calculateSafetyScore,
-  calculateDistrictScores,
-  getGradeColor,
-  getGradeDescription,
-  type SafetyScore,
-  type DistrictScore,
-} from '../utils/safetyScore'
-import { GWANGJU_DISTRICTS } from '../utils/districts'
-import DistrictCompareModal from './DistrictCompareModal'
 import AddressSearch from './AddressSearch'
 import WeatherBadge from './WeatherBadge'
 
@@ -70,36 +60,6 @@ function NearestItem(props: NearestItemProps) {
   )
 }
 
-interface ScoreRowProps {
-  label: string
-  value: number
-  max: number
-  hint: string
-}
-
-function ScoreRow(props: ScoreRowProps) {
-  const ratio = props.value / props.max
-  let barColor = '#e53935'
-  if (ratio >= 0.75) barColor = '#43a047'
-  else if (ratio >= 0.5) barColor = '#fb8c00'
-  else if (ratio >= 0.25) barColor = '#fdd835'
-
-  const widthPct = (ratio * 100) + '%'
-
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <span style={{ fontSize: 13, color: '#333', fontWeight: 600 }}>{props.label}</span>
-        <span style={{ fontSize: 13, color: '#333', fontWeight: 700 }}>{props.value} <span style={{ color: '#999', fontWeight: 400 }}>/ {props.max}점</span></span>
-      </div>
-      <div style={{ height: 8, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
-        <div style={{ width: widthPct, height: '100%', background: barColor, transition: 'width 0.5s' }} />
-      </div>
-      <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>{props.hint}</div>
-    </div>
-  )
-}
-
 export default function KakaoMap() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -112,18 +72,13 @@ export default function KakaoMap() {
   const [loading, setLoading] = useState(true)
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number; name: string } | null>(null)
   const [locating, setLocating] = useState(false)
   const [nearestList, setNearestList] = useState<NearestPlace[]>([])
   const [showSheet, setShowSheet] = useState(false)
-  const [safetyScore, setSafetyScore] = useState<SafetyScore | null>(null)
-  const [showScoreDetail, setShowScoreDetail] = useState(false)
-  const [showDistrictCompare, setShowDistrictCompare] = useState(false)
   const [showWeatherDetail, setShowWeatherDetail] = useState(false)
-  const [districtScores, setDistrictScores] = useState<DistrictScore[]>([])
 
-  // 모달이 하나라도 열려있는지 (안심점수, 자치구비교, 날씨)
-  const anyModalOpen = showScoreDetail || showDistrictCompare || showWeatherDetail
+  // 모달 열림 = 날씨 모달만 추적 (안심점수/자치구 제거됨)
+  const anyModalOpen = showWeatherDetail
 
   // 날씨/미세먼지: 위치 기반 (사용자 위치 우선, 없으면 광주 중심)
   const weatherLat = userLocation?.lat || GWANGJU_CENTER.lat
@@ -161,13 +116,6 @@ export default function KakaoMap() {
     }
     loadAll()
   }, [])
-
-  useEffect(function () {
-    if (emergencyRooms.length > 0 && pharmacies.length > 0) {
-      const scores = calculateDistrictScores(GWANGJU_DISTRICTS, emergencyRooms, pharmacies)
-      setDistrictScores(scores)
-    }
-  }, [emergencyRooms, pharmacies])
 
   useEffect(function () {
     if (!mapRef.current) return
@@ -256,12 +204,9 @@ export default function KakaoMap() {
         const lat = position.coords.latitude
         const lng = position.coords.longitude
         setUserLocation({ lat: lat, lng: lng })
-        setSearchedLocation(null)
 
         placeUserMarker(lat, lng)
         calculateNearest(lat, lng)
-        const score = calculateSafetyScore(lat, lng, emergencyRooms, pharmacies)
-        setSafetyScore(score)
         setLocating(false)
         setShowSheet(true)
       },
@@ -275,13 +220,10 @@ export default function KakaoMap() {
   }
 
   function onSelectAddress(result: AddressResult) {
-    setSearchedLocation({ lat: result.lat, lng: result.lng, name: result.placeName })
     setUserLocation({ lat: result.lat, lng: result.lng })
 
     placeUserMarker(result.lat, result.lng)
     calculateNearest(result.lat, result.lng)
-    const score = calculateSafetyScore(result.lat, result.lng, emergencyRooms, pharmacies)
-    setSafetyScore(score)
     setShowSheet(true)
   }
 
@@ -299,35 +241,8 @@ export default function KakaoMap() {
     setShowSheet(false)
   }
 
-  function handleStopProp(e: React.MouseEvent) {
-    e.stopPropagation()
-  }
-
-  function openScoreDetail() {
-    setShowScoreDetail(true)
-  }
-
-  function closeScoreDetail() {
-    setShowScoreDetail(false)
-  }
-
-  function openDistrictCompare() {
-    setShowDistrictCompare(true)
-  }
-
-  function closeDistrictCompare() {
-    setShowDistrictCompare(false)
-  }
-
   function onWeatherModalChange(open: boolean) {
     setShowWeatherDetail(open)
-  }
-
-  function moveToDistrict(lat: number, lng: number) {
-    if (!mapRef.current) return
-    const map = mapRef.current
-    map.setCenter(new window.kakao.maps.LatLng(lat, lng))
-    map.setLevel(5)
   }
 
   function closeSheet() {
@@ -354,56 +269,33 @@ export default function KakaoMap() {
   const locatingCursor = locating ? 'wait' : 'pointer'
   const buttonOpacity = loading ? 0.5 : 1
 
-  // 다른 모달 열렸을 때 (안심점수, 자치구) WeatherBadge 자체를 숨기되,
-  // 날씨 모달이 열렸을 때는 다른 UI 숨김 (배지는 보이게 + 모달이 위에 뜸)
-  const hideOtherUI = anyModalOpen
-
   return (
     <div style={{ position: 'relative', width: '100%', height: '100vh' }}>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* 상단 헤더 - 안심점수/자치구 모달 열리면 숨김 (날씨 모달은 자체 모달이 위에 뜸) */}
-      {!showScoreDetail && !showDistrictCompare && (
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, background: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', zIndex: showWeatherDetail ? 5 : 10 }}>
-          <div style={{ padding: 'max(env(safe-area-inset-top), 10px) 12px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <img src="/gwangju-deundeun/favicon.png" alt="광주든든" style={{ width: 38, height: 38, borderRadius: 9, objectFit: 'cover', flexShrink: 0, boxShadow: '0 2px 6px rgba(0,0,0,0.1)' }} />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <h1 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#FF8C42', lineHeight: 1.1, letterSpacing: '-0.5px' }}>광주든든</h1>
-              <p style={{ margin: '3px 0 0', fontSize: 10, color: '#666', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>어르신·1인가구 안심돌봄 {headerStatus}</p>
-            </div>
-            {/* 우측 날씨/미세먼지 배지 - 한 번만 렌더링 */}
-            <WeatherBadge lat={weatherLat} lng={weatherLng} onModalChange={onWeatherModalChange} />
+      {/* 상단 헤더 - 항상 표시 (날씨 모달이 위에서 가림) */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, background: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', zIndex: anyModalOpen ? 5 : 10 }}>
+        <div style={{ padding: 'max(env(safe-area-inset-top), 10px) 12px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <img src="/gwangju-deundeun/favicon.png" alt="광주든든" style={{ width: 38, height: 38, borderRadius: 9, objectFit: 'cover', flexShrink: 0, boxShadow: '0 2px 6px rgba(0,0,0,0.1)' }} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#FF8C42', lineHeight: 1.1, letterSpacing: '-0.5px' }}>광주든든</h1>
+            <p style={{ margin: '3px 0 0', fontSize: 10, color: '#666', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>어르신·1인가구 안심돌봄 {headerStatus}</p>
           </div>
+          {/* 우측 날씨/미세먼지 배지 */}
+          <WeatherBadge lat={weatherLat} lng={weatherLng} onModalChange={onWeatherModalChange} />
         </div>
-      )}
+      </div>
 
       {/* 검색바 - 모달 열리면 숨김 */}
-      {!hideOtherUI && <AddressSearch onSelect={onSelectAddress} />}
-
-      {/* 안심점수 카드 - 모달 열리면 숨김 */}
-      {safetyScore && !hideOtherUI && (
-        <div onClick={openScoreDetail} style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 10px) + 140px)', left: 14, padding: '11px 13px', background: '#fff', borderRadius: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.18)', zIndex: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, border: '2px solid ' + getGradeColor(safetyScore.grade), maxWidth: 'calc(100% - 84px)' }}>
-          <div style={{ width: 42, height: 42, borderRadius: '50%', background: getGradeColor(safetyScore.grade), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 800, flexShrink: 0 }}>{safetyScore.grade}</div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 10, color: '#888', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{searchedLocation ? searchedLocation.name : '내 위치'} 안심점수</div>
-            <div style={{ fontSize: 19, fontWeight: 800, color: '#333', lineHeight: 1 }}>{safetyScore.total}<span style={{ fontSize: 12, color: '#888', fontWeight: 500 }}>점</span></div>
-            <div style={{ fontSize: 10, color: getGradeColor(safetyScore.grade), fontWeight: 700, marginTop: 2 }}>{getGradeDescription(safetyScore.grade)} · 자세히 ›</div>
-          </div>
-        </div>
-      )}
+      {!anyModalOpen && <AddressSearch onSelect={onSelectAddress} />}
 
       {/* 📍 위치 버튼 - 모달 열리면 숨김 */}
-      {!hideOtherUI && (
+      {!anyModalOpen && (
         <button onClick={findMyLocation} disabled={locating || loading} title="내 위치 찾기" style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 10px) + 140px)', right: 14, width: 50, height: 50, borderRadius: '50%', border: 'none', background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 22, cursor: locatingCursor, zIndex: 10, opacity: buttonOpacity }}>{locatingIcon}</button>
       )}
 
-      {/* 📊 자치구 비교 버튼 - 모달 열리면 숨김 */}
-      {districtScores.length > 0 && !hideOtherUI && (
-        <button onClick={openDistrictCompare} title="광주 5개 자치구 비교" style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 10px) + 200px)', right: 14, width: 50, height: 50, borderRadius: '50%', border: 'none', background: '#FF8C42', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 20, color: '#fff', cursor: 'pointer', zIndex: 10 }}>📊</button>
-      )}
-
       {/* 응급실/약국 토글 - 모달 열리면 숨김 */}
-      {!hideOtherUI && (
+      {!anyModalOpen && (
         <div style={{ position: 'absolute', bottom: bottomBarPosition, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 6, padding: 5, background: '#fff', borderRadius: 999, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, transition: 'bottom 0.3s', whiteSpace: 'nowrap' }}>
           <button onClick={setEmergencyLayer} style={{ padding: '9px 18px', border: 'none', borderRadius: 999, background: emergencyButtonBg, color: emergencyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>🏥 응급실</button>
           <button onClick={setPharmacyLayer} style={{ padding: '9px 18px', border: 'none', borderRadius: 999, background: pharmacyButtonBg, color: pharmacyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>💊 약국</button>
@@ -411,7 +303,7 @@ export default function KakaoMap() {
       )}
 
       {/* 가까운 TOP 5 시트 - 모달 열리면 숨김 */}
-      {showSheet && userLocation && !hideOtherUI && (
+      {showSheet && userLocation && !anyModalOpen && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '40vh', background: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, boxShadow: '0 -4px 24px rgba(0,0,0,0.15)', zIndex: 20, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 20px 8px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -427,39 +319,6 @@ export default function KakaoMap() {
             })}
           </div>
         </div>
-      )}
-
-      {/* 안심점수 상세 모달 */}
-      {showScoreDetail && safetyScore && (
-        <div onClick={closeScoreDetail} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px 40px' }}>
-          <div onClick={handleStopProp} style={{ background: '#fff', borderRadius: 20, padding: 20, maxWidth: 340, width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.4)', position: 'relative' }}>
-            <button onClick={closeScoreDetail} style={{ position: 'absolute', top: 12, right: 12, width: 36, height: 36, border: 'none', background: '#f0f0f0', borderRadius: '50%', fontSize: 18, cursor: 'pointer', color: '#666', padding: 0, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, zIndex: 1 }}>✕</button>
-
-            <div style={{ marginBottom: 16, paddingRight: 40 }}>
-              <div style={{ fontSize: 13, color: '#888', fontWeight: 700 }}>광주든든 안심점수</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 38, fontWeight: 900, color: getGradeColor(safetyScore.grade), lineHeight: 1 }}>{safetyScore.total}</span>
-                <span style={{ fontSize: 16, color: '#666', fontWeight: 600 }}>/ 100점</span>
-                <span style={{ padding: '3px 9px', background: getGradeColor(safetyScore.grade), color: '#fff', borderRadius: 999, fontSize: 13, fontWeight: 800 }}>{safetyScore.grade}등급</span>
-              </div>
-              <div style={{ fontSize: 14, color: getGradeColor(safetyScore.grade), fontWeight: 800, marginTop: 6 }}>{getGradeDescription(safetyScore.grade)}</div>
-            </div>
-
-            <div style={{ borderTop: '1px solid #eee', paddingTop: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#333', marginBottom: 12 }}>점수 산출 근거</div>
-
-              <ScoreRow label="🏥 응급실 접근성" value={safetyScore.emergency} max={40} hint={'1km 내 응급실 ' + safetyScore.emergencyCount1km + '곳'} />
-              <ScoreRow label="💊 약국 접근성" value={safetyScore.pharmacy} max={30} hint={'500m 내 약국 ' + safetyScore.pharmacyCount500m + '곳'} />
-              <ScoreRow label="📏 거리 가중치" value={safetyScore.distance} max={30} hint={'가장 가까운 응급실 ' + formatDistance(safetyScore.nearestEmergencyDist)} />
-            </div>
-
-            <div style={{ marginTop: 16, padding: '12px 14px', background: '#fff8f0', borderRadius: 12, fontSize: 13, color: '#7a4e1f', lineHeight: 1.5, fontWeight: 500 }}>ℹ️ 광주광역시 공공데이터(응급의료기관·약국)와 거리 기반 알고리즘으로 자동 산출됩니다.</div>
-          </div>
-        </div>
-      )}
-
-      {showDistrictCompare && (
-        <DistrictCompareModal scores={districtScores} onClose={closeDistrictCompare} onDistrictClick={moveToDistrict} />
       )}
     </div>
   )
