@@ -17,6 +17,21 @@ import {
   fetchGwangjuTourism,
   type TouristSpot,
 } from '../api/tourism'
+import {
+  fetchGwangjuLandmarks,
+  type Landmark,
+} from '../api/landmarks'
+import {
+  USER_PRESETS,
+  type PresetId,
+  loadPresetId,
+  savePresetId,
+  loadCustomOrder,
+  getLayerOrderForPreset,
+  hasVisitedBefore,
+  markVisited,
+} from '../utils/userPresets'
+import PresetModal from './PresetModal'
 import { getDistance, formatDistance, walkingMinutes } from '../utils/geo'
 import AddressSearch from './AddressSearch'
 import WeatherBadge from './WeatherBadge'
@@ -41,6 +56,7 @@ const LAYER_CONFIGS: LayerConfig[] = [
   { id: 'emergency', emoji: '🏥', label: '응급실',   color: '#FF3B30', enabled: true },
   { id: 'pharmacy',  emoji: '💊', label: '약국',     color: '#4CAF50', enabled: true },
   { id: 'busStop',   emoji: '🚌', label: '정류장',   color: '#1976D2', enabled: true },
+  { id: 'landmark',  emoji: '🏆', label: '명소',     color: '#9C27B0', enabled: true },
   { id: 'tourism',   emoji: '🌸', label: '관광',     color: '#E91E63', enabled: true },
   { id: 'food',      emoji: '🍲', label: '음식',     color: '#FF8C42', enabled: true },
   { id: 'shopping',  emoji: '🛍️', label: '쇼핑·숙박', color: '#795548', enabled: true },
@@ -58,6 +74,7 @@ interface LayerState {
   emergency: boolean
   pharmacy: boolean
   busStop: boolean
+  landmark: boolean
   tourism: boolean
   food: boolean
   shopping: boolean
@@ -67,6 +84,7 @@ const INITIAL_LAYERS: LayerState = {
   emergency: false,
   pharmacy: false,
   busStop: false,
+  landmark: false,
   tourism: false,
   food: false,
   shopping: false,
@@ -74,7 +92,7 @@ const INITIAL_LAYERS: LayerState = {
 
 // ── NearestPlace ───────────────────────────────────────
 interface NearestPlace {
-  type: 'emergency' | 'pharmacy' | 'busStop' | 'tourism' | 'food' | 'shopping'
+  type: 'emergency' | 'pharmacy' | 'busStop' | 'tourism' | 'food' | 'shopping' | 'landmark'
   name: string
   addr: string
   tel?: string
@@ -82,7 +100,7 @@ interface NearestPlace {
   lng: number
   distance: number
   stopId?: number
-  // 관광지/음식/쇼핑 공통
+  // 관광지/음식/쇼핑/명소 공통
   category?: string
   emoji?: string
   thumbnail?: string
@@ -154,14 +172,15 @@ function NearestItem(props: NearestItemProps) {
     }
   }
 
-  const isTourismLike = place.type === 'tourism' || place.type === 'food' || place.type === 'shopping'
-  const showThumbnail = isTourismLike && place.thumbnail && !imgError
+  const isTourismLike = place.type === 'tourism' || place.type === 'food' || place.type === 'shopping' || place.type === 'landmark'
+  const showThumbnail = (place.type === 'tourism' || place.type === 'food' || place.type === 'shopping') && place.thumbnail && !imgError
 
   // 타입별 강조색
   const categoryColor =
     place.type === 'food' ? '#FF8C42' :
     place.type === 'shopping' ? '#795548' :
     place.type === 'tourism' ? '#E91E63' :
+    place.type === 'landmark' ? '#9C27B0' :
     '#1976d2'
 
   return (
@@ -218,6 +237,7 @@ export default function KakaoMap() {
   const [busStopsLoading, setBusStopsLoading] = useState(false)
   const [tourismSpots, setTourismSpots] = useState<TouristSpot[]>([])
   const [tourismLoading, setTourismLoading] = useState(false)
+  const [landmarks, setLandmarks] = useState<Landmark[]>([])
 
   const [layers, setLayers] = useState<LayerState>(INITIAL_LAYERS)
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null)
@@ -229,7 +249,29 @@ export default function KakaoMap() {
   const [showSheet, setShowSheet] = useState(false)
   const [showWeatherDetail, setShowWeatherDetail] = useState(false)
 
-  const anyModalOpen = showWeatherDetail
+  // 사용자 프리셋 (토글 순서 결정)
+  const [presetId, setPresetId] = useState<PresetId | null>(null)
+  const [customOrder, setCustomOrder] = useState<string[] | null>(null)
+  const [showPresetModal, setShowPresetModal] = useState(false)
+  const [isFirstVisit, setIsFirstVisit] = useState(false)
+
+  // 첫 방문 시 자동 모달, 저장된 프리셋 불러오기
+  useEffect(function () {
+    const visited = hasVisitedBefore()
+    const savedPreset = loadPresetId()
+    const savedCustom = loadCustomOrder()
+
+    if (savedCustom) setCustomOrder(savedCustom)
+    if (savedPreset) setPresetId(savedPreset)
+
+    if (!visited) {
+      setIsFirstVisit(true)
+      setShowPresetModal(true)
+      markVisited()
+    }
+  }, [])
+
+  const anyModalOpen = showWeatherDetail || showPresetModal
 
   const weatherLat = userLocation?.lat || GWANGJU_CENTER.lat
   const weatherLng = userLocation?.lng || GWANGJU_CENTER.lng
@@ -275,16 +317,18 @@ export default function KakaoMap() {
     document.head.appendChild(script)
   }, [])
 
-  // ── 응급실/약국 데이터 로드 (즉시) ──────────────────────────
+  // ── 응급실/약국/명소 데이터 로드 (즉시) ──────────────────
   useEffect(function () {
     async function loadAll() {
       setLoading(true)
       const result = await Promise.all([
         fetchGwangjuEmergencyRooms(),
         fetchGwangjuPharmacies(),
+        fetchGwangjuLandmarks(),
       ])
       setEmergencyRooms(result[0])
       setPharmacies(result[1])
+      setLandmarks(result[2])
       setLoading(false)
     }
     loadAll()
@@ -445,6 +489,28 @@ export default function KakaoMap() {
       busClustererRef.current = clusterer
     }
 
+    // 🏆 명소 마커 (13곳, 클러스터링 없음 - 모두 즉시 보이게)
+    if (layers.landmark && landmarks.length > 0) {
+      const landmarkMarkerImage = createPinMarkerImage('#9C27B0')
+
+      landmarks.forEach(function (item) {
+        const position = new window.kakao.maps.LatLng(item.lat, item.lng)
+        const marker = new window.kakao.maps.Marker({
+          position: position,
+          image: landmarkMarkerImage,
+          title: item.name,
+        })
+        marker.setMap(map)
+        markersRef.current.push(marker)
+
+        window.kakao.maps.event.addListener(marker, 'click', function () {
+          if (!sharedInfowindowRef.current) return
+          sharedInfowindowRef.current.setContent(buildLandmarkContent(item))
+          sharedInfowindowRef.current.open(map, marker)
+        })
+      })
+    }
+
     // 🌸 관광 + 🍲 음식 + 🛍️ 쇼핑·숙박 마커 (3종 분리, 클러스터러)
     // 카테고리별로 필터링 후 각각 별도 클러스터러로 표시
     if ((layers.tourism || layers.food || layers.shopping) && tourismSpots.length > 0) {
@@ -522,7 +588,7 @@ export default function KakaoMap() {
         )
       }
     }
-  }, [layers.emergency, layers.pharmacy, layers.busStop, layers.tourism, layers.food, layers.shopping, emergencyRooms, pharmacies, busStops, tourismSpots])
+  }, [layers.emergency, layers.pharmacy, layers.busStop, layers.landmark, layers.tourism, layers.food, layers.shopping, emergencyRooms, pharmacies, busStops, landmarks, tourismSpots])
 
   // ── 토글 함수 ─────────────────────────────────────────────
   function toggleLayer(layerId: string) {
@@ -627,6 +693,20 @@ export default function KakaoMap() {
           thumbnail: spot.thumbnail,
         }
       })
+    } else if (activeLayerId === 'landmark') {
+      result = landmarks.map(function (item) {
+        return {
+          type: 'landmark' as const,
+          name: item.name,
+          addr: item.address,
+          tel: item.tel,
+          lat: item.lat,
+          lng: item.lng,
+          distance: getDistance(lat, lng, item.lat, item.lng),
+          category: item.categoryLabel,
+          emoji: item.emoji,
+        }
+      })
     }
 
     if (result.length === 0) {
@@ -709,7 +789,7 @@ export default function KakaoMap() {
     if (userLocation) {
       calculateNearest(userLocation.lat, userLocation.lng)
     }
-  }, [activeLayerId, emergencyRooms, pharmacies, busStops, tourismSpots])
+  }, [activeLayerId, emergencyRooms, pharmacies, busStops, landmarks, tourismSpots])
 
   function focusOnPlace(place: NearestPlace) {
     if (!mapRef.current) return
@@ -740,6 +820,7 @@ export default function KakaoMap() {
     (layers.emergency ? emergencyRooms.length : 0) +
     (layers.pharmacy ? pharmacies.length : 0) +
     (layers.busStop ? busStops.length : 0) +
+    (layers.landmark ? landmarks.length : 0) +
     (layers.tourism ? tourismCount : 0) +
     (layers.food ? foodCount : 0) +
     (layers.shopping ? shoppingCount : 0)
@@ -747,6 +828,50 @@ export default function KakaoMap() {
   const onLayers = LAYER_CONFIGS.filter(function (c) {
     return layers[c.id as keyof LayerState]
   })
+
+  // 현재 사용자 프리셋에 따른 토글 순서
+  const currentOrder = (function () {
+    if (presetId === 'custom' && customOrder) return customOrder
+    if (presetId) return getLayerOrderForPreset(presetId)
+    // 기본값: 어르신 순서 (광주든든 컨셉)
+    const seniorPreset = USER_PRESETS.find(function (p) { return p.id === 'senior' })
+    return seniorPreset ? seniorPreset.layerOrder : USER_PRESETS[0].layerOrder
+  })()
+
+  // LAYER_CONFIGS를 currentOrder대로 재정렬
+  const orderedLayerConfigs = currentOrder
+    .map(function (id) { return LAYER_CONFIGS.find(function (c) { return c.id === id }) })
+    .filter(function (c): c is typeof LAYER_CONFIGS[number] { return !!c })
+
+  // 프리셋 모달 핸들러
+  function onSelectPreset(id: PresetId) {
+    setPresetId(id)
+    savePresetId(id)
+    setShowPresetModal(false)
+    setIsFirstVisit(false)
+  }
+
+  function onSaveCustomOrder(order: string[]) {
+    setCustomOrder(order)
+    setPresetId('custom')
+    savePresetId('custom')
+    setShowPresetModal(false)
+    setIsFirstVisit(false)
+  }
+
+  function onClosePresetModal() {
+    setShowPresetModal(false)
+    setIsFirstVisit(false)
+    // 첫 방문에서 그냥 닫으면 senior 기본 적용 (광주든든 컨셉)
+    if (!presetId) {
+      setPresetId('senior')
+      savePresetId('senior')
+    }
+  }
+
+  function openPresetModal() {
+    setShowPresetModal(true)
+  }
 
   const anyTourismLayerOn = layers.tourism || layers.food || layers.shopping
 
@@ -780,6 +905,26 @@ export default function KakaoMap() {
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#FF8C42', lineHeight: 1.1, letterSpacing: '-0.5px' }}>광주든든</h1>
             <p style={{ margin: '3px 0 0', fontSize: 10, color: '#666', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>광주의 모든 것, 한 화면에 {headerStatus}</p>
           </div>
+          <button
+            onClick={openPresetModal}
+            title="사용자 유형 변경"
+            style={{
+              border: 'none',
+              background: '#f5f5f5',
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              cursor: 'pointer',
+              fontSize: 18,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background 0.15s',
+            }}
+          >
+            {presetId ? (USER_PRESETS.find(function (p) { return p.id === presetId })?.emoji || '👤') : '👤'}
+          </button>
           <WeatherBadge lat={weatherLat} lng={weatherLng} onModalChange={onWeatherModalChange} />
         </div>
       </div>
@@ -789,7 +934,7 @@ export default function KakaoMap() {
       {/* 좌측 세로 토글 */}
       {!anyModalOpen && (
         <div style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 10px) + 144px)', left: 12, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 10 }}>
-          {LAYER_CONFIGS.map(function (config) {
+          {orderedLayerConfigs.map(function (config) {
             const isOn = layers[config.id as keyof LayerState]
             const isEnabled = config.enabled
 
@@ -865,6 +1010,18 @@ export default function KakaoMap() {
           👈 좌측에서 보고 싶은 정보를 선택하세요
         </div>
       )}
+
+      {/* 프리셋 선택 모달 */}
+      <PresetModal
+        isOpen={showPresetModal}
+        currentPresetId={presetId}
+        layerConfigs={LAYER_CONFIGS}
+        currentOrder={currentOrder}
+        onSelectPreset={onSelectPreset}
+        onSaveCustomOrder={onSaveCustomOrder}
+        onClose={onClosePresetModal}
+        showCloseButton={!isFirstVisit}
+      />
     </div>
   )
 }
@@ -922,7 +1079,12 @@ function buildBusStopContent(stop: BusStop, arrivals: BusArrival[]): string {
     )
   }).join('')
 
-  const body = header + '<div style="max-height:240px;overflow-y:auto;">' + rows + '</div>'
+  const body =
+    header +
+    '<div style="max-height:240px;overflow-y:auto;">' + rows + '</div>' +
+    '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;">' +
+      buildRouteButton(stop.stopName, stop.lat, stop.lng, '#1976d2') +
+    '</div>'
   return wrapWithClose(body, { minWidth: 260, maxWidth: 300 })
 }
 
@@ -951,9 +1113,12 @@ function buildTourismContent(spot: TouristSpot, accentColor?: string): string {
     '<div style="display:inline-block;font-size:11px;color:#fff;background:' + color + ';padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;">' + spot.emoji + ' ' + escapeHtml(spot.category) + '</div>' +
     '<div style="font-size:14px;font-weight:700;color:#333;margin-bottom:6px;line-height:1.3;padding-right:28px;">' + escapeHtml(spot.title) + '</div>' +
     addrSection +
-    telSection
+    telSection +
+    '<div style="margin-top:10px;">' +
+      buildRouteButton(spot.title, spot.lat, spot.lng, color) +
+    '</div>'
 
-  return wrapWithClose(body, { minWidth: 240, maxWidth: 280 })
+  return wrapWithClose(body, { minWidth: 240, maxWidth: 300 })
 }
 
 // ──────────────────────────────────────────────────────
@@ -965,12 +1130,13 @@ function buildEmergencyContent(item: any): string {
 
   const body =
     '<div style="font-size:14px;font-weight:700;color:#d32f2f;margin-bottom:6px;padding-right:28px;">🏥 ' + escapeHtml(item.dutyName) + '</div>' +
-    '<div style="font-size:12px;color:#555;line-height:1.5;">' +
+    '<div style="font-size:12px;color:#555;line-height:1.5;margin-bottom:8px;">' +
       escapeHtml(item.dutyAddr || '') + '<br/>' +
       '📞 ' + telHref +
-    '</div>'
+    '</div>' +
+    buildRouteButton(item.dutyName, item.wgs84Lat, item.wgs84Lon, '#d32f2f')
 
-  return wrapWithClose(body, { minWidth: 220, maxWidth: 280 })
+  return wrapWithClose(body, { minWidth: 240, maxWidth: 300 })
 }
 
 // ──────────────────────────────────────────────────────
@@ -982,12 +1148,57 @@ function buildPharmacyContent(item: any): string {
 
   const body =
     '<div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:6px;padding-right:28px;">💊 ' + escapeHtml(item.dutyName) + '</div>' +
-    '<div style="font-size:12px;color:#555;line-height:1.5;">' +
+    '<div style="font-size:12px;color:#555;line-height:1.5;margin-bottom:8px;">' +
       escapeHtml(item.dutyAddr || '') + '<br/>' +
       '📞 ' + telHref +
+    '</div>' +
+    buildRouteButton(item.dutyName, item.wgs84Lat, item.wgs84Lon, '#2e7d32')
+
+  return wrapWithClose(body, { minWidth: 240, maxWidth: 300 })
+}
+
+// ──────────────────────────────────────────────────────
+// 🏆 명소 인포윈도우 콘텐츠 빌더
+// ──────────────────────────────────────────────────────
+function buildLandmarkContent(item: Landmark): string {
+  const color = '#9C27B0'
+
+  const telSection = item.tel
+    ? '<div style="font-size:12px;color:#555;margin-top:4px;">📞 <a href="tel:' + escapeHtml(item.tel) + '" style="color:' + color + ';text-decoration:none;font-weight:600;">' + escapeHtml(item.tel) + '</a></div>'
+    : ''
+
+  const descSection = item.description
+    ? '<div style="font-size:11px;color:#888;margin-top:4px;font-style:italic;">' + escapeHtml(item.description) + '</div>'
+    : ''
+
+  const body =
+    '<div style="display:inline-block;font-size:11px;color:#fff;background:' + color + ';padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;">' + item.emoji + ' ' + escapeHtml(item.categoryLabel) + '</div>' +
+    '<div style="font-size:14px;font-weight:700;color:#333;margin-bottom:4px;line-height:1.3;padding-right:28px;">' + escapeHtml(item.name) + '</div>' +
+    '<div style="font-size:12px;color:#666;line-height:1.5;">' + escapeHtml(item.address) + '</div>' +
+    descSection +
+    telSection +
+    '<div style="margin-top:10px;">' +
+      buildRouteButton(item.name, item.lat, item.lng, color) +
     '</div>'
 
-  return wrapWithClose(body, { minWidth: 220, maxWidth: 280 })
+  return wrapWithClose(body, { minWidth: 240, maxWidth: 300 })
+}
+
+// ──────────────────────────────────────────────────────
+// 🚖 길찾기 버튼 (카카오맵 외부 연결)
+// 카카오맵 길찾기 API 호출 — 무료, 사용자가 즉시 외부 앱으로 이동
+// ──────────────────────────────────────────────────────
+function buildRouteButton(name: string, lat: number, lng: number, color: string): string {
+  // 카카오맵 길찾기 URL: 도착지 좌표 + 이름
+  // 모바일에선 카카오맵 앱으로, PC에선 카카오맵 웹으로 자동 연결
+  const url = 'https://map.kakao.com/link/to/' + encodeURIComponent(name) + ',' + lat + ',' + lng
+
+  return (
+    '<a href="' + url + '" target="_blank" rel="noopener noreferrer" ' +
+      'style="display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:8px 14px;background:' + color + ';color:#fff;border-radius:999px;font-size:12px;font-weight:700;text-decoration:none;">' +
+      '🚖 길찾기' +
+    '</a>'
+  )
 }
 
 // ──────────────────────────────────────────────────────
