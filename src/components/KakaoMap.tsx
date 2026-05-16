@@ -346,11 +346,16 @@ export default function KakaoMap() {
 
     const map = mapRef.current
 
-    // 응급실 마커
+    // 응급실 마커 (빨간 방울 핀)
     if (layers.emergency) {
+      const emergencyMarkerImage = createPinMarkerImage('#FF3B30')
       emergencyRooms.forEach(function (item) {
         const position = new window.kakao.maps.LatLng(item.wgs84Lat, item.wgs84Lon)
-        const marker = new window.kakao.maps.Marker({ position: position, title: item.dutyName })
+        const marker = new window.kakao.maps.Marker({
+          position: position,
+          image: emergencyMarkerImage,
+          title: item.dutyName,
+        })
         marker.setMap(map)
         markersRef.current.push(marker)
 
@@ -362,11 +367,16 @@ export default function KakaoMap() {
       })
     }
 
-    // 약국 마커
+    // 약국 마커 (초록 방울 핀)
     if (layers.pharmacy) {
+      const pharmacyMarkerImage = createPinMarkerImage('#4CAF50')
       pharmacies.forEach(function (item) {
         const position = new window.kakao.maps.LatLng(item.wgs84Lat, item.wgs84Lon)
-        const marker = new window.kakao.maps.Marker({ position: position, title: item.dutyName })
+        const marker = new window.kakao.maps.Marker({
+          position: position,
+          image: pharmacyMarkerImage,
+          title: item.dutyName,
+        })
         marker.setMap(map)
         markersRef.current.push(marker)
 
