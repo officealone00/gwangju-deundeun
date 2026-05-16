@@ -249,6 +249,14 @@ export default function KakaoMap() {
   const [showSheet, setShowSheet] = useState(false)
   const [showWeatherDetail, setShowWeatherDetail] = useState(false)
 
+  // 길찾기 직선 라인
+  const routeLineRef = useRef<any>(null)
+  const [routeInfo, setRouteInfo] = useState<{
+    fromName: string
+    toName: string
+    distance: number
+  } | null>(null)
+
   // 사용자 프리셋 (토글 순서 결정)
   const [presetId, setPresetId] = useState<PresetId | null>(null)
   const [customOrder, setCustomOrder] = useState<string[] | null>(null)
@@ -740,6 +748,75 @@ export default function KakaoMap() {
     userMarkerRef.current = userMarker
   }
 
+  // ── 🚖 길찾기 라인 그리기 (출발지 → 도착지) ───────────────
+  function drawRouteLine(toName: string, toLat: number, toLng: number) {
+    if (!mapRef.current) return
+    if (!userLocation) {
+      // 위치 권한 없을 때 안내
+      alert('현재 위치를 먼저 찾아주세요. 📍 버튼을 눌러주세요.')
+      return
+    }
+
+    const map = mapRef.current
+
+    // 기존 라인 제거
+    if (routeLineRef.current) {
+      routeLineRef.current.setMap(null)
+    }
+
+    // 직선 라인 (출발지 → 도착지)
+    const linePath = [
+      new window.kakao.maps.LatLng(userLocation.lat, userLocation.lng),
+      new window.kakao.maps.LatLng(toLat, toLng),
+    ]
+
+    const polyline = new window.kakao.maps.Polyline({
+      path: linePath,
+      strokeWeight: 5,
+      strokeColor: '#9C27B0',
+      strokeOpacity: 0.85,
+      strokeStyle: 'shortdash',
+    })
+    polyline.setMap(map)
+    routeLineRef.current = polyline
+
+    // 출발지+도착지 모두 보이도록 지도 범위 조정
+    const bounds = new window.kakao.maps.LatLngBounds()
+    bounds.extend(new window.kakao.maps.LatLng(userLocation.lat, userLocation.lng))
+    bounds.extend(new window.kakao.maps.LatLng(toLat, toLng))
+    map.setBounds(bounds, 80, 80, 80, 80)
+
+    // 거리 정보 저장 (상단 표시용)
+    const distance = getDistance(userLocation.lat, userLocation.lng, toLat, toLng)
+    setRouteInfo({
+      fromName: '내 위치',
+      toName: toName,
+      distance: distance,
+    })
+
+    // 공용 인포윈도우 닫기
+    if (sharedInfowindowRef.current) {
+      sharedInfowindowRef.current.close()
+    }
+  }
+
+  // ── 길찾기 라인 지우기 ──────────────────────────────────
+  function clearRouteLine() {
+    if (routeLineRef.current) {
+      routeLineRef.current.setMap(null)
+      routeLineRef.current = null
+    }
+    setRouteInfo(null)
+  }
+
+  // ── 전역 등록 (인포윈도우 HTML 안 버튼에서 호출) ──────────
+  useEffect(function () {
+    ;(window as any).__gwangjuDeundeunDrawRoute = function (name: string, lat: number, lng: number) {
+      drawRouteLine(name, lat, lng)
+    }
+  }, [userLocation])
+
+
   // ── 📍 내 위치 찾기 ──────────────────────────────────────
   function findMyLocation() {
     setLocating(true)
@@ -930,6 +1007,57 @@ export default function KakaoMap() {
       </div>
 
       {!anyModalOpen && <AddressSearch onSelect={onSelectAddress} />}
+
+      {/* 🚖 길찾기 정보 카드 (경로 보기 클릭 시 표시) */}
+      {!anyModalOpen && routeInfo && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(max(env(safe-area-inset-top), 10px) + 130px)',
+          left: 12,
+          right: 12,
+          zIndex: 11,
+          background: '#fff',
+          borderRadius: 14,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+          padding: '12px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          border: '2px solid #9C27B0',
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, color: '#9C27B0', fontWeight: 700, marginBottom: 2 }}>
+              🚖 경로 안내
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              📍 내 위치 → {routeInfo.toName}
+            </div>
+            <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>
+              직선 {formatDistance(routeInfo.distance)} · 도보 약 {walkingMinutes(routeInfo.distance)}분 · 차 약 {Math.max(1, Math.round(routeInfo.distance / 500))}분
+            </div>
+          </div>
+          <button
+            onClick={clearRouteLine}
+            aria-label="경로 닫기"
+            style={{
+              flexShrink: 0,
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              border: 'none',
+              background: '#f0f0f0',
+              color: '#999',
+              fontSize: 16,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* 좌측 세로 토글 */}
       {!anyModalOpen && (
@@ -1185,19 +1313,27 @@ function buildLandmarkContent(item: Landmark): string {
 }
 
 // ──────────────────────────────────────────────────────
-// 🚖 길찾기 버튼 (카카오맵 외부 연결)
-// 카카오맵 길찾기 API 호출 — 무료, 사용자가 즉시 외부 앱으로 이동
+// 🚖 길찾기 버튼 (사이트 안 경로 + 카카오맵 외부 연결)
+// 1) 지도에 경로 보기 (직선 라인, 사이트 안)
+// 2) 카카오맵으로 정밀 안내 (외부 연결)
 // ──────────────────────────────────────────────────────
 function buildRouteButton(name: string, lat: number, lng: number, color: string): string {
-  // 카카오맵 길찾기 URL: 도착지 좌표 + 이름
-  // 모바일에선 카카오맵 앱으로, PC에선 카카오맵 웹으로 자동 연결
   const url = 'https://map.kakao.com/link/to/' + encodeURIComponent(name) + ',' + lat + ',' + lng
+  const safeName = escapeHtml(name).replace(/'/g, '&#39;')
 
   return (
-    '<a href="' + url + '" target="_blank" rel="noopener noreferrer" ' +
-      'style="display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:8px 14px;background:' + color + ';color:#fff;border-radius:999px;font-size:12px;font-weight:700;text-decoration:none;">' +
-      '🚖 길찾기' +
-    '</a>'
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+      // 1) 사이트 안 직선 경로 보기 버튼 (보라색)
+      '<button onclick="window.__gwangjuDeundeunDrawRoute&&window.__gwangjuDeundeunDrawRoute(\'' + safeName + '\',' + lat + ',' + lng + ')" ' +
+        'style="display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:8px 12px;background:#9C27B0;color:#fff;border:none;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;">' +
+        '📍 경로 보기' +
+      '</button>' +
+      // 2) 카카오맵으로 정밀 안내 (기존 색)
+      '<a href="' + url + '" target="_blank" rel="noopener noreferrer" ' +
+        'style="display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:8px 12px;background:' + color + ';color:#fff;border-radius:999px;font-size:12px;font-weight:700;text-decoration:none;">' +
+        '🚖 카카오맵' +
+      '</a>' +
+    '</div>'
   )
 }
 
