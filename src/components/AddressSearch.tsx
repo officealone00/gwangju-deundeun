@@ -132,16 +132,20 @@ export default function AddressSearch(props: Props) {
         left: 12,
         right: 12,
         zIndex: 9,
+        // ⭐ 다크모드 강제 무력화 (전체 컨테이너)
+        colorScheme: 'light',
       }}
     >
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        background: '#fff',
+        background: '#ffffff',
         borderRadius: 14,
         boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
         padding: '4px 6px 4px 14px',
         gap: 8,
+        // ⭐ 다크모드 강제 무력화 (input wrapper)
+        colorScheme: 'light',
       }}>
         <span style={{ fontSize: 16, flexShrink: 0 }}>🔍</span>
         <input
@@ -160,16 +164,18 @@ export default function AddressSearch(props: Props) {
             border: 'none',
             outline: 'none',
             padding: '12px 0',
-            fontSize: 14,
-            // ⭐ 모바일 흰색 글씨 fix
-            color: '#222',
+            fontSize: 16, // ⭐ 16px 이상이어야 iOS 줌 방지
+            // ⭐ 다크모드 강제 무력화 (라이트 모드 강제)
+            colorScheme: 'light',
+            // ⭐ 명시적 텍스트 색
+            color: '#222222',
+            WebkitTextFillColor: '#222222',    // iOS Safari 강제
+            opacity: 1,                         // iOS 자동 투명도 방지
             background: 'transparent',
             backgroundColor: 'transparent',
-            WebkitTextFillColor: '#222',     // iOS Safari 흰 글씨 방지
-            caretColor: '#FF8C42',           // 커서 색 (광주든든 컬러)
+            caretColor: '#FF8C42',
             fontFamily: 'inherit',
-            // 모바일 줌 방지 (16px 미만이면 줌 됨)
-            // 14px이지만 입력 시 자동 줌 비활성화는 viewport에서 처리됨
+            fontWeight: 500,
           }}
         />
         {keyword && (
