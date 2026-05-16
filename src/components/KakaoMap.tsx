@@ -831,18 +831,13 @@ export default function KakaoMap() {
   }
 
   // ── 정류장 클릭 시 (모달에서) 지도 이동 + 임시 강조 마커 ───
+  // ⭐ 선택된 정류장만 표시 (전체 정류장 토글 ON 안 함)
   function onBusStopClick(stop: any) {
     if (!mapRef.current) return
     const map = mapRef.current
     const position = new window.kakao.maps.LatLng(stop.lat, stop.lng)
 
-    // 1) 정류장 토글 자동으로 켜기 (정류장 마커가 보이게)
-    setLayers(function (prev) {
-      if (prev.busStop) return prev
-      return { ...prev, busStop: true }
-    })
-
-    // 2) 임시 강조 마커 (눈에 잘 띄는 크고 보라색)
+    // 1) 임시 강조 마커 (눈에 잘 띄는 크고 보라색)
     const tempPinSvg =
       '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="56" viewBox="0 0 40 56">' +
         // 그림자
@@ -869,11 +864,11 @@ export default function KakaoMap() {
     })
     tempMarker.setMap(map)
 
-    // 3) 지도 이동 (마커 먼저 그린 후)
+    // 2) 지도 이동 (마커 먼저 그린 후)
     map.setLevel(3)
     map.setCenter(position)
 
-    // 4) 인포윈도우 즉시 표시
+    // 3) 인포윈도우 즉시 표시
     if (sharedInfowindowRef.current) {
       const iw = sharedInfowindowRef.current
       iw.setContent(buildBusStopLoadingContent(stop))
@@ -885,15 +880,18 @@ export default function KakaoMap() {
       })
     }
 
-    // 5) 그 다음에 모달 닫기 (마커가 화면에 보장된 후)
+    // 4) 그 다음에 모달 닫기 (마커가 화면에 보장된 후)
     setTimeout(function () {
       setBusRouteTarget(null)
     }, 100)
 
-    // 6) 8초 후 임시 마커 제거 (정식 정류장 마커가 자리잡을 시간)
-    setTimeout(function () {
+    // 5) 인포윈도우 닫힐 때 임시 마커도 같이 제거
+    //    (지도 클릭 시 인포윈도우 자동 닫힘 → 마커도 사라짐)
+    const closeListener = function () {
       tempMarker.setMap(null)
-    }, 8000)
+      window.kakao.maps.event.removeListener(map, 'click', closeListener)
+    }
+    window.kakao.maps.event.addListener(map, 'click', closeListener)
   }
 
   // ── 전역 등록 (인포윈도우 HTML 안 버튼에서 호출) ──────────
