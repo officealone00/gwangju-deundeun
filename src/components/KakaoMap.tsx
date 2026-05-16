@@ -6,6 +6,22 @@ import {
   type Pharmacy,
   type AddressResult,
 } from '../api/publicData'
+import {
+  fetchAllBusStops,
+  fetchBusArrivals,
+  getRouteKindColor,
+  type BusStop,
+  type BusArrival,
+} from '../api/bus'
+import {
+  fetchGwangjuTourism,
+  type TouristSpot,
+} from '../api/tourism'
+import {
+  fetchGwangjuSubwayStations,
+  SUBWAY_INFO,
+  type SubwayStation,
+} from '../api/subway'
 import { getDistance, formatDistance, walkingMinutes } from '../utils/geo'
 import AddressSearch from './AddressSearch'
 import WeatherBadge from './WeatherBadge'
@@ -17,26 +33,94 @@ const GWANGJU_CENTER = {
 
 const KAKAO_MAP_KEY = import.meta.env.VITE_KAKAO_MAP_KEY
 
-type LayerType = 'emergency' | 'pharmacy'
+// ── 레이어 정의 ───────────────────────────────────────────
+interface LayerConfig {
+  id: string
+  emoji: string
+  label: string
+  color: string
+  enabled: boolean
+}
 
+const LAYER_CONFIGS: LayerConfig[] = [
+  { id: 'emergency', emoji: '🏥', label: '응급실', color: '#FF3B30', enabled: true },
+  { id: 'pharmacy',  emoji: '💊', label: '약국',   color: '#4CAF50', enabled: true },
+  { id: 'busStop',   emoji: '🚌', label: '정류장', color: '#1976D2', enabled: true },
+  { id: 'tourism',   emoji: '🌸', label: '관광',   color: '#E91E63', enabled: true },  // ⭐ Phase 3 활성화
+  { id: 'subway',    emoji: '🚇', label: '지하철', color: '#009E96', enabled: true },  // ⭐ Phase 4 활성화 (1호선 광주교통공사)
+]
+
+interface LayerState {
+  emergency: boolean
+  pharmacy: boolean
+  busStop: boolean
+  tourism: boolean
+  subway: boolean
+}
+
+const INITIAL_LAYERS: LayerState = {
+  emergency: false,
+  pharmacy: false,
+  busStop: false,
+  tourism: false,
+  subway: false,
+}
+
+// ── NearestPlace 확장 ───────────────────────────────────────
 interface NearestPlace {
+  type: 'emergency' | 'pharmacy' | 'busStop' | 'tourism' | 'subway'
   name: string
   addr: string
-  tel: string
+  tel?: string
   lat: number
   lng: number
   distance: number
+  stopId?: number
+  // 관광지 전용
+  category?: string
+  emoji?: string
+  thumbnail?: string
+  // 지하철 전용
+  line?: string
+  transfer?: string
 }
 
 interface NearestItemProps {
   place: NearestPlace
   idx: number
   onItemClick: (place: NearestPlace) => void
+  activeColor: string
 }
 
 function NearestItem(props: NearestItemProps) {
   const place = props.place
   const idx = props.idx
+  const [arrivals, setArrivals] = useState<BusArrival[] | null>(null)
+  const [loadingArrivals, setLoadingArrivals] = useState(false)
+  const [imgError, setImgError] = useState(false)
+
+  // 정류장이면 마운트 시 도착정보 미리 로드
+  useEffect(function () {
+    if (place.type !== 'busStop' || !place.stopId) return
+
+    let cancelled = false
+    setLoadingArrivals(true)
+
+    fetchBusArrivals(place.stopId).then(function (list) {
+      if (cancelled) return
+      const sorted = list
+        .filter(function (a) { return a.remainMinutes > 0 || a.arriveFlag === 1 })
+        .sort(function (a, b) {
+          if (a.arriveFlag !== b.arriveFlag) return b.arriveFlag - a.arriveFlag
+          return a.remainMinutes - b.remainMinutes
+        })
+        .slice(0, 3)
+      setArrivals(sorted)
+      setLoadingArrivals(false)
+    })
+
+    return function () { cancelled = true }
+  }, [place.type, place.stopId])
 
   function onClickRow() {
     props.onItemClick(place)
@@ -46,16 +130,67 @@ function NearestItem(props: NearestItemProps) {
     e.stopPropagation()
   }
 
-  const telHref = 'tel:' + place.tel
+  function onImgError() {
+    setImgError(true)
+  }
+
+  const telHref = place.tel ? 'tel:' + place.tel : '#'
+
+  // 정류장용 도착정보 미리보기 텍스트
+  let arrivalText = ''
+  if (place.type === 'busStop') {
+    if (loadingArrivals) arrivalText = '도착정보 불러오는 중...'
+    else if (arrivals === null) arrivalText = ''
+    else if (arrivals.length === 0) arrivalText = '현재 도착 예정 버스 없음'
+    else {
+      arrivalText = arrivals.map(function (a) {
+        const time = a.arriveFlag === 1 ? '곧도착' : a.remainMinutes + '분'
+        const routeShort = a.routeName.split('(')[0]
+        return routeShort + ' (' + time + ')'
+      }).join(' · ')
+    }
+  }
+
+  // 관광지 썸네일 (있고 로드 성공한 경우만)
+  const showThumbnail = place.type === 'tourism' && place.thumbnail && !imgError
 
   return (
     <div onClick={onClickRow} style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
-      <div style={{ width: 32, height: 32, borderRadius: '50%', background: idx === 0 ? '#FF8C42' : '#f0f0f0', color: idx === 0 ? '#fff' : '#666', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{idx + 1}</div>
+      <div style={{ width: 32, height: 32, borderRadius: '50%', background: idx === 0 ? props.activeColor : '#f0f0f0', color: idx === 0 ? '#fff' : '#666', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{idx + 1}</div>
+
+      {showThumbnail && (
+        <img src={place.thumbnail} onError={onImgError} alt={place.name} style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+      )}
+
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: '#333', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place.name}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#333', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {place.type === 'tourism' && place.emoji ? place.emoji + ' ' : ''}
+          {place.name}
+        </div>
         <div style={{ fontSize: 12, color: '#888' }}>📍 {formatDistance(place.distance)} · 도보 약 {walkingMinutes(place.distance)}분</div>
+        {place.type === 'busStop' && arrivalText && (
+          <div style={{ fontSize: 11, color: '#1976d2', marginTop: 4, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            🚌 {arrivalText}
+          </div>
+        )}
+        {place.type === 'tourism' && place.category && (
+          <div style={{ fontSize: 11, color: '#E91E63', marginTop: 4, fontWeight: 600 }}>
+            {place.category}
+          </div>
+        )}
+        {place.type === 'subway' && (
+          <div style={{ fontSize: 11, color: '#009E96', marginTop: 4, fontWeight: 600 }}>
+            🚇 {place.line}{place.transfer ? ' · ' + place.transfer : ''}
+          </div>
+        )}
       </div>
-      <a href={telHref} onClick={onClickPhone} style={{ padding: '8px 12px', background: '#1976d2', color: '#fff', borderRadius: 999, fontSize: 12, fontWeight: 700, textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>📞 전화</a>
+
+      {(place.type === 'emergency' || place.type === 'pharmacy') && place.tel && (
+        <a href={telHref} onClick={onClickPhone} style={{ padding: '8px 12px', background: '#1976d2', color: '#fff', borderRadius: 999, fontSize: 12, fontWeight: 700, textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>📞 전화</a>
+      )}
+      {place.type === 'tourism' && place.tel && (
+        <a href={telHref} onClick={onClickPhone} style={{ padding: '8px 12px', background: '#E91E63', color: '#fff', borderRadius: 999, fontSize: 12, fontWeight: 700, textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>📞 전화</a>
+      )}
     </div>
   )
 }
@@ -64,11 +199,20 @@ export default function KakaoMap() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
+  const busClustererRef = useRef<any>(null)
+  const tourismClustererRef = useRef<any>(null)
   const userMarkerRef = useRef<any>(null)
 
   const [emergencyRooms, setEmergencyRooms] = useState<EmergencyRoom[]>([])
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([])
-  const [activeLayer, setActiveLayer] = useState<LayerType>('emergency')
+  const [busStops, setBusStops] = useState<BusStop[]>([])
+  const [busStopsLoading, setBusStopsLoading] = useState(false)
+  const [tourismSpots, setTourismSpots] = useState<TouristSpot[]>([])
+  const [tourismLoading, setTourismLoading] = useState(false)
+  const [subwayStations, setSubwayStations] = useState<SubwayStation[]>([])
+
+  const [layers, setLayers] = useState<LayerState>(INITIAL_LAYERS)
+  const [activeLayerId, setActiveLayerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -77,13 +221,12 @@ export default function KakaoMap() {
   const [showSheet, setShowSheet] = useState(false)
   const [showWeatherDetail, setShowWeatherDetail] = useState(false)
 
-  // 모달 열림 = 날씨 모달만 추적 (안심점수/자치구 제거됨)
   const anyModalOpen = showWeatherDetail
 
-  // 날씨/미세먼지: 위치 기반 (사용자 위치 우선, 없으면 광주 중심)
   const weatherLat = userLocation?.lat || GWANGJU_CENTER.lat
   const weatherLng = userLocation?.lng || GWANGJU_CENTER.lng
 
+  // ── 카카오맵 초기화 ───────────────────────────────────────
   useEffect(function () {
     const script = document.createElement('script')
     script.async = true
@@ -103,72 +246,370 @@ export default function KakaoMap() {
     document.head.appendChild(script)
   }, [])
 
+  // ── 응급실/약국 + 지하철 데이터 로드 (즉시) ──────────────
   useEffect(function () {
     async function loadAll() {
       setLoading(true)
       const result = await Promise.all([
         fetchGwangjuEmergencyRooms(),
         fetchGwangjuPharmacies(),
+        fetchGwangjuSubwayStations(),
       ])
       setEmergencyRooms(result[0])
       setPharmacies(result[1])
+      setSubwayStations(result[2])
       setLoading(false)
     }
     loadAll()
   }, [])
 
+  // ── 정류장 lazy load ─────────────────────────────────────
+  async function ensureBusStopsLoaded(): Promise<void> {
+    if (busStopsLoading || busStops.length > 0) return
+    setBusStopsLoading(true)
+    const stops = await fetchAllBusStops()
+    setBusStops(stops)
+    setBusStopsLoading(false)
+  }
+
+  // ── 관광 lazy load ───────────────────────────────────────
+  async function ensureTourismLoaded(): Promise<void> {
+    if (tourismLoading || tourismSpots.length > 0) return
+    setTourismLoading(true)
+    const spots = await fetchGwangjuTourism()
+    setTourismSpots(spots)
+    setTourismLoading(false)
+  }
+
+  // ── 마커 그리기 (켜진 레이어에 따라) ──────────────────────
   useEffect(function () {
     if (!mapRef.current) return
 
+    // 기존 일반 마커 제거
     markersRef.current.forEach(function (m) { m.setMap(null) })
     markersRef.current = []
 
+    // 기존 버스 클러스터러 제거
+    if (busClustererRef.current) {
+      busClustererRef.current.clear()
+      busClustererRef.current.setMap(null)
+      busClustererRef.current = null
+    }
+
+    // 기존 관광 클러스터러 제거
+    if (tourismClustererRef.current) {
+      tourismClustererRef.current.clear()
+      tourismClustererRef.current.setMap(null)
+      tourismClustererRef.current = null
+    }
+
     const map = mapRef.current
-    const items = activeLayer === 'emergency' ? emergencyRooms : pharmacies
-    const color = activeLayer === 'emergency' ? '#d32f2f' : '#2e7d32'
-    const emoji = activeLayer === 'emergency' ? '🏥' : '💊'
 
-    items.forEach(function (item) {
-      const position = new window.kakao.maps.LatLng(item.wgs84Lat, item.wgs84Lon)
-      const marker = new window.kakao.maps.Marker({ position: position, title: item.dutyName })
-      marker.setMap(map)
-      markersRef.current.push(marker)
+    // 응급실 마커
+    if (layers.emergency) {
+      emergencyRooms.forEach(function (item) {
+        const position = new window.kakao.maps.LatLng(item.wgs84Lat, item.wgs84Lon)
+        const marker = new window.kakao.maps.Marker({ position: position, title: item.dutyName })
+        marker.setMap(map)
+        markersRef.current.push(marker)
 
-      const tel = item.dutyTel1 || '전화번호 없음'
-      const content =
-        '<div style="padding:12px 16px;min-width:220px;font-family:sans-serif;">' +
-        '<div style="font-size:14px;font-weight:700;color:' + color + ';margin-bottom:6px;">' + emoji + ' ' + item.dutyName + '</div>' +
-        '<div style="font-size:12px;color:#555;line-height:1.5;">' +
-        item.dutyAddr + '<br/>' +
-        '📞 <a href="tel:' + item.dutyTel1 + '" style="color:#1976d2;text-decoration:none;">' + tel + '</a>' +
-        '</div></div>'
+        const tel = item.dutyTel1 || '전화번호 없음'
+        const content =
+          '<div style="padding:12px 16px;min-width:220px;font-family:sans-serif;">' +
+          '<div style="font-size:14px;font-weight:700;color:#d32f2f;margin-bottom:6px;">🏥 ' + item.dutyName + '</div>' +
+          '<div style="font-size:12px;color:#555;line-height:1.5;">' +
+          item.dutyAddr + '<br/>' +
+          '📞 <a href="tel:' + item.dutyTel1 + '" style="color:#1976d2;text-decoration:none;">' + tel + '</a>' +
+          '</div></div>'
 
-      const infowindow = new window.kakao.maps.InfoWindow({ content: content })
-
-      window.kakao.maps.event.addListener(marker, 'click', function () {
-        infowindow.open(map, marker)
+        const infowindow = new window.kakao.maps.InfoWindow({ content: content })
+        window.kakao.maps.event.addListener(marker, 'click', function () {
+          infowindow.open(map, marker)
+        })
       })
-    })
-  }, [activeLayer, emergencyRooms, pharmacies])
+    }
 
-  function calculateNearest(lat: number, lng: number) {
-    const items = activeLayer === 'emergency' ? emergencyRooms : pharmacies
+    // 약국 마커
+    if (layers.pharmacy) {
+      pharmacies.forEach(function (item) {
+        const position = new window.kakao.maps.LatLng(item.wgs84Lat, item.wgs84Lon)
+        const marker = new window.kakao.maps.Marker({ position: position, title: item.dutyName })
+        marker.setMap(map)
+        markersRef.current.push(marker)
 
-    const withDistance: NearestPlace[] = items.map(function (item) {
-      return {
-        name: item.dutyName,
-        addr: item.dutyAddr,
-        tel: item.dutyTel1,
-        lat: item.wgs84Lat,
-        lng: item.wgs84Lon,
-        distance: getDistance(lat, lng, item.wgs84Lat, item.wgs84Lon),
+        const tel = item.dutyTel1 || '전화번호 없음'
+        const content =
+          '<div style="padding:12px 16px;min-width:220px;font-family:sans-serif;">' +
+          '<div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:6px;">💊 ' + item.dutyName + '</div>' +
+          '<div style="font-size:12px;color:#555;line-height:1.5;">' +
+          item.dutyAddr + '<br/>' +
+          '📞 <a href="tel:' + item.dutyTel1 + '" style="color:#1976d2;text-decoration:none;">' + tel + '</a>' +
+          '</div></div>'
+
+        const infowindow = new window.kakao.maps.InfoWindow({ content: content })
+        window.kakao.maps.event.addListener(marker, 'click', function () {
+          infowindow.open(map, marker)
+        })
+      })
+    }
+
+    // 🚌 정류장 마커 (클러스터러)
+    if (layers.busStop && busStops.length > 0) {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="#1976D2" stroke="white" stroke-width="2"/></svg>'
+      const stopMarkerSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg)
+      const stopMarkerImage = new window.kakao.maps.MarkerImage(
+        stopMarkerSrc,
+        new window.kakao.maps.Size(14, 14),
+        { offset: new window.kakao.maps.Point(7, 7) }
+      )
+
+      const stopMarkers = busStops.map(function (stop) {
+        const position = new window.kakao.maps.LatLng(stop.lat, stop.lng)
+        const marker = new window.kakao.maps.Marker({
+          position: position,
+          image: stopMarkerImage,
+          title: stop.stopName,
+        })
+
+        const infowindow = new window.kakao.maps.InfoWindow({
+          content: buildBusStopLoadingContent(stop),
+          removable: true,
+        })
+
+        window.kakao.maps.event.addListener(marker, 'click', function () {
+          infowindow.open(map, marker)
+          fetchBusArrivals(stop.stopId).then(function (arrivals) {
+            infowindow.setContent(buildBusStopContent(stop, arrivals))
+          })
+        })
+
+        return marker
+      })
+
+      const clusterer = new window.kakao.maps.MarkerClusterer({
+        map: map,
+        averageCenter: true,
+        minLevel: 5,
+        gridSize: 60,
+        styles: [{
+          width: '40px',
+          height: '40px',
+          background: 'rgba(25, 118, 210, 0.85)',
+          borderRadius: '50%',
+          color: '#fff',
+          textAlign: 'center',
+          lineHeight: '40px',
+          fontSize: '13px',
+          fontWeight: '700',
+          border: '2px solid white',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+        }],
+      })
+      clusterer.addMarkers(stopMarkers)
+      busClustererRef.current = clusterer
+    }
+
+    // 🌸 관광지 마커 (클러스터러)
+    if (layers.tourism && tourismSpots.length > 0) {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="#E91E63" stroke="white" stroke-width="2"/></svg>'
+      const tourismMarkerSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg)
+      const tourismMarkerImage = new window.kakao.maps.MarkerImage(
+        tourismMarkerSrc,
+        new window.kakao.maps.Size(14, 14),
+        { offset: new window.kakao.maps.Point(7, 7) }
+      )
+
+      const tourismMarkers = tourismSpots.map(function (spot) {
+        const position = new window.kakao.maps.LatLng(spot.lat, spot.lng)
+        const marker = new window.kakao.maps.Marker({
+          position: position,
+          image: tourismMarkerImage,
+          title: spot.title,
+        })
+
+        const infowindow = new window.kakao.maps.InfoWindow({
+          content: buildTourismContent(spot),
+          removable: true,
+        })
+
+        window.kakao.maps.event.addListener(marker, 'click', function () {
+          infowindow.open(map, marker)
+        })
+
+        return marker
+      })
+
+      const clusterer = new window.kakao.maps.MarkerClusterer({
+        map: map,
+        averageCenter: true,
+        minLevel: 5,
+        gridSize: 60,
+        styles: [{
+          width: '40px',
+          height: '40px',
+          background: 'rgba(233, 30, 99, 0.85)',
+          borderRadius: '50%',
+          color: '#fff',
+          textAlign: 'center',
+          lineHeight: '40px',
+          fontSize: '13px',
+          fontWeight: '700',
+          border: '2px solid white',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+        }],
+      })
+      clusterer.addMarkers(tourismMarkers)
+      tourismClustererRef.current = clusterer
+    }
+
+    // 🚇 지하철 마커 (클러스터 불필요 - 20개)
+    if (layers.subway && subwayStations.length > 0) {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="#009E96" stroke="white" stroke-width="2"/></svg>'
+      const subwayMarkerSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg)
+      const subwayMarkerImage = new window.kakao.maps.MarkerImage(
+        subwayMarkerSrc,
+        new window.kakao.maps.Size(14, 14),
+        { offset: new window.kakao.maps.Point(7, 7) }
+      )
+
+      subwayStations.forEach(function (station) {
+        const position = new window.kakao.maps.LatLng(station.lat, station.lng)
+        const marker = new window.kakao.maps.Marker({
+          position: position,
+          image: subwayMarkerImage,
+          title: station.name + '역',
+        })
+        marker.setMap(map)
+        markersRef.current.push(marker)
+
+        const infowindow = new window.kakao.maps.InfoWindow({
+          content: buildSubwayContent(station),
+          removable: true,
+        })
+
+        window.kakao.maps.event.addListener(marker, 'click', function () {
+          infowindow.open(map, marker)
+        })
+      })
+    }
+  }, [layers.emergency, layers.pharmacy, layers.busStop, layers.tourism, layers.subway, emergencyRooms, pharmacies, busStops, tourismSpots, subwayStations])
+
+  // ── 토글 함수 ─────────────────────────────────────────────
+  function toggleLayer(layerId: string) {
+    const config = LAYER_CONFIGS.find(function (c) { return c.id === layerId })
+    if (!config || !config.enabled) {
+      alert(config?.label + ' 기능은 곧 추가됩니다!')
+      return
+    }
+
+    // 첫 토글 시 lazy load 트리거
+    if (layerId === 'busStop') {
+      ensureBusStopsLoaded()
+    } else if (layerId === 'tourism') {
+      ensureTourismLoaded()
+    }
+
+    setLayers(function (prev) {
+      const newLayers = { ...prev, [layerId]: !prev[layerId as keyof LayerState] }
+
+      if (newLayers[layerId as keyof LayerState]) {
+        setActiveLayerId(layerId)
+      } else {
+        const stillOn = Object.keys(newLayers).find(function (k) {
+          return newLayers[k as keyof LayerState]
+        })
+        setActiveLayerId(stillOn || null)
       }
-    })
 
-    withDistance.sort(function (a, b) { return a.distance - b.distance })
-    setNearestList(withDistance.slice(0, 5))
+      return newLayers
+    })
   }
 
+  // ── 가까운 장소 계산 ─────────────────────────────────────
+  function calculateNearest(lat: number, lng: number) {
+    if (!activeLayerId) {
+      setNearestList([])
+      return
+    }
+
+    let result: NearestPlace[] = []
+
+    if (activeLayerId === 'emergency') {
+      result = emergencyRooms.map(function (item) {
+        return {
+          type: 'emergency' as const,
+          name: item.dutyName,
+          addr: item.dutyAddr,
+          tel: item.dutyTel1,
+          lat: item.wgs84Lat,
+          lng: item.wgs84Lon,
+          distance: getDistance(lat, lng, item.wgs84Lat, item.wgs84Lon),
+        }
+      })
+    } else if (activeLayerId === 'pharmacy') {
+      result = pharmacies.map(function (item) {
+        return {
+          type: 'pharmacy' as const,
+          name: item.dutyName,
+          addr: item.dutyAddr,
+          tel: item.dutyTel1,
+          lat: item.wgs84Lat,
+          lng: item.wgs84Lon,
+          distance: getDistance(lat, lng, item.wgs84Lat, item.wgs84Lon),
+        }
+      })
+    } else if (activeLayerId === 'busStop') {
+      result = busStops.map(function (stop) {
+        return {
+          type: 'busStop' as const,
+          name: stop.stopName,
+          addr: stop.arsId ? 'ARS ' + stop.arsId : '',
+          lat: stop.lat,
+          lng: stop.lng,
+          distance: getDistance(lat, lng, stop.lat, stop.lng),
+          stopId: stop.stopId,
+        }
+      })
+    } else if (activeLayerId === 'tourism') {
+      result = tourismSpots.map(function (spot) {
+        return {
+          type: 'tourism' as const,
+          name: spot.title,
+          addr: spot.addr,
+          tel: spot.tel,
+          lat: spot.lat,
+          lng: spot.lng,
+          distance: getDistance(lat, lng, spot.lat, spot.lng),
+          category: spot.category,
+          emoji: spot.emoji,
+          thumbnail: spot.thumbnail,
+        }
+      })
+    } else if (activeLayerId === 'subway') {
+      result = subwayStations.map(function (station) {
+        return {
+          type: 'subway' as const,
+          name: station.name + '역',
+          addr: station.address,
+          lat: station.lat,
+          lng: station.lng,
+          distance: getDistance(lat, lng, station.lat, station.lng),
+          line: station.line,
+          transfer: station.transfer,
+        }
+      })
+    }
+
+    if (result.length === 0) {
+      setNearestList([])
+      return
+    }
+
+    result.sort(function (a, b) { return a.distance - b.distance })
+    setNearestList(result.slice(0, 5))
+  }
+
+  // ── 사용자 위치 마커 ──────────────────────────────────────
   function placeUserMarker(lat: number, lng: number) {
     if (!mapRef.current) return
     const map = mapRef.current
@@ -190,6 +631,7 @@ export default function KakaoMap() {
     userMarkerRef.current = userMarker
   }
 
+  // ── 📍 내 위치 찾기 ──────────────────────────────────────
   function findMyLocation() {
     setLocating(true)
 
@@ -208,7 +650,10 @@ export default function KakaoMap() {
         placeUserMarker(lat, lng)
         calculateNearest(lat, lng)
         setLocating(false)
-        setShowSheet(true)
+
+        if (activeLayerId) {
+          setShowSheet(true)
+        }
       },
       function (error) {
         console.error('위치 정보 오류:', error)
@@ -219,19 +664,23 @@ export default function KakaoMap() {
     )
   }
 
+  // ── 주소 검색 결과 ────────────────────────────────────────
   function onSelectAddress(result: AddressResult) {
     setUserLocation({ lat: result.lat, lng: result.lng })
-
     placeUserMarker(result.lat, result.lng)
     calculateNearest(result.lat, result.lng)
-    setShowSheet(true)
+
+    if (activeLayerId) {
+      setShowSheet(true)
+    }
   }
 
+  // ── 레이어 변경 시 TOP 5 재계산 ──────────────────────────
   useEffect(function () {
     if (userLocation) {
       calculateNearest(userLocation.lat, userLocation.lng)
     }
-  }, [activeLayer, emergencyRooms, pharmacies])
+  }, [activeLayerId, emergencyRooms, pharmacies, busStops, tourismSpots, subwayStations])
 
   function focusOnPlace(place: NearestPlace) {
     if (!mapRef.current) return
@@ -249,77 +698,268 @@ export default function KakaoMap() {
     setShowSheet(false)
   }
 
-  function setEmergencyLayer() {
-    setActiveLayer('emergency')
+  // 활성 레이어 메타
+  const activeLayer = LAYER_CONFIGS.find(function (c) { return c.id === activeLayerId })
+  const activeColor = activeLayer?.color || '#FF8C42'
+
+  // 현재 마커 수
+  const totalMarkers =
+    (layers.emergency ? emergencyRooms.length : 0) +
+    (layers.pharmacy ? pharmacies.length : 0) +
+    (layers.busStop ? busStops.length : 0) +
+    (layers.tourism ? tourismSpots.length : 0) +
+    (layers.subway ? subwayStations.length : 0)
+
+  const onLayers = LAYER_CONFIGS.filter(function (c) {
+    return layers[c.id as keyof LayerState]
+  })
+
+  let headerStatus = '· 로딩 중'
+  if (!loading) {
+    if (onLayers.length === 0) {
+      headerStatus = '· 좌측에서 보고 싶은 정보를 선택하세요'
+    } else if (layers.busStop && busStopsLoading) {
+      headerStatus = '· 정류장 불러오는 중...'
+    } else if (layers.tourism && tourismLoading) {
+      headerStatus = '· 관광 정보 불러오는 중...'
+    } else {
+      headerStatus = '· ' + onLayers.map(function (l) { return l.emoji + l.label }).join(' ') + ' ' + totalMarkers + '개'
+    }
   }
 
-  function setPharmacyLayer() {
-    setActiveLayer('pharmacy')
-  }
-
-  const currentCount = activeLayer === 'emergency' ? emergencyRooms.length : pharmacies.length
-  const layerLabel = activeLayer === 'emergency' ? '응급실' : '약국'
-  const bottomBarPosition = showSheet ? 'calc(40vh + 24px)' : 24
-  const headerStatus = loading ? '· 로딩 중' : '· ' + layerLabel + ' ' + currentCount + '곳'
-  const emergencyButtonBg = activeLayer === 'emergency' ? '#FF8C42' : 'transparent'
-  const emergencyButtonColor = activeLayer === 'emergency' ? '#fff' : '#666'
-  const pharmacyButtonBg = activeLayer === 'pharmacy' ? '#FF8C42' : 'transparent'
-  const pharmacyButtonColor = activeLayer === 'pharmacy' ? '#fff' : '#666'
   const locatingIcon = locating ? '⏳' : '📍'
   const locatingCursor = locating ? 'wait' : 'pointer'
   const buttonOpacity = loading ? 0.5 : 1
+  const bottomSafe = showSheet ? 'calc(40vh + 24px)' : 24
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100vh' }}>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* 상단 헤더 - 항상 표시 (날씨 모달이 위에서 가림) */}
+      {/* 상단 헤더 */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, background: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', zIndex: anyModalOpen ? 5 : 10 }}>
         <div style={{ padding: 'max(env(safe-area-inset-top), 10px) 12px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <img src="/gwangju-deundeun/favicon.png" alt="광주든든" style={{ width: 38, height: 38, borderRadius: 9, objectFit: 'cover', flexShrink: 0, boxShadow: '0 2px 6px rgba(0,0,0,0.1)' }} />
           <div style={{ minWidth: 0, flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#FF8C42', lineHeight: 1.1, letterSpacing: '-0.5px' }}>광주든든</h1>
-            <p style={{ margin: '3px 0 0', fontSize: 10, color: '#666', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>어르신·1인가구 안심돌봄 {headerStatus}</p>
+            <p style={{ margin: '3px 0 0', fontSize: 10, color: '#666', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>광주의 모든 것, 한 화면에 {headerStatus}</p>
           </div>
-          {/* 우측 날씨/미세먼지 배지 */}
           <WeatherBadge lat={weatherLat} lng={weatherLng} onModalChange={onWeatherModalChange} />
         </div>
       </div>
 
-      {/* 검색바 - 모달 열리면 숨김 */}
       {!anyModalOpen && <AddressSearch onSelect={onSelectAddress} />}
 
-      {/* 📍 위치 버튼 - 모달 열리면 숨김 */}
+      {/* 좌측 세로 토글 */}
       {!anyModalOpen && (
-        <button onClick={findMyLocation} disabled={locating || loading} title="내 위치 찾기" style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 10px) + 140px)', right: 14, width: 50, height: 50, borderRadius: '50%', border: 'none', background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 22, cursor: locatingCursor, zIndex: 10, opacity: buttonOpacity }}>{locatingIcon}</button>
-      )}
+        <div style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 10px) + 144px)', left: 12, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 10 }}>
+          {LAYER_CONFIGS.map(function (config) {
+            const isOn = layers[config.id as keyof LayerState]
+            const isEnabled = config.enabled
 
-      {/* 응급실/약국 토글 - 모달 열리면 숨김 */}
-      {!anyModalOpen && (
-        <div style={{ position: 'absolute', bottom: bottomBarPosition, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 6, padding: 5, background: '#fff', borderRadius: 999, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, transition: 'bottom 0.3s', whiteSpace: 'nowrap' }}>
-          <button onClick={setEmergencyLayer} style={{ padding: '9px 18px', border: 'none', borderRadius: 999, background: emergencyButtonBg, color: emergencyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>🏥 응급실</button>
-          <button onClick={setPharmacyLayer} style={{ padding: '9px 18px', border: 'none', borderRadius: 999, background: pharmacyButtonBg, color: pharmacyButtonColor, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>💊 약국</button>
+            const bg = isOn ? config.color : '#fff'
+            const iconColor = isOn ? '#fff' : (isEnabled ? '#333' : '#ccc')
+            const opacity = isEnabled ? 1 : 0.5
+            const cursor = isEnabled ? 'pointer' : 'not-allowed'
+
+            function onClick() {
+              toggleLayer(config.id)
+            }
+
+            return (
+              <button
+                key={config.id}
+                onClick={onClick}
+                title={config.label + (isEnabled ? '' : ' (곧 추가됩니다)')}
+                style={{
+                  width: 50,
+                  height: 50,
+                  border: 'none',
+                  borderRadius: 14,
+                  background: bg,
+                  color: iconColor,
+                  fontSize: 22,
+                  cursor: cursor,
+                  opacity: opacity,
+                  boxShadow: isOn ? '0 4px 16px ' + config.color + '66' : '0 4px 12px rgba(0,0,0,0.12)',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {config.emoji}
+              </button>
+            )
+          })}
         </div>
       )}
 
-      {/* 가까운 TOP 5 시트 - 모달 열리면 숨김 */}
-      {showSheet && userLocation && !anyModalOpen && (
+      {/* 📍 위치 버튼 */}
+      {!anyModalOpen && (
+        <button onClick={findMyLocation} disabled={locating || loading} title="내 위치 찾기" style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 10px) + 144px)', right: 14, width: 50, height: 50, borderRadius: '50%', border: 'none', background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontSize: 22, cursor: locatingCursor, zIndex: 10, opacity: buttonOpacity }}>
+          {locatingIcon}
+        </button>
+      )}
+
+      {/* 가까운 TOP 5 시트 */}
+      {showSheet && userLocation && activeLayer && nearestList.length > 0 && !anyModalOpen && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '40vh', background: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, boxShadow: '0 -4px 24px rgba(0,0,0,0.15)', zIndex: 20, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 20px 8px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ width: 40, height: 4, background: '#ddd', borderRadius: 2, margin: '0 auto 8px' }} />
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#333' }}>가까운 {layerLabel} TOP 5</h2>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#333' }}>
+                가까운 {activeLayer.emoji} {activeLayer.label} TOP 5
+              </h2>
             </div>
             <button onClick={closeSheet} style={{ border: 'none', background: 'none', fontSize: 24, cursor: 'pointer', color: '#999' }}>✕</button>
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
             {nearestList.map(function (place, idx) {
-              return <NearestItem key={idx} place={place} idx={idx} onItemClick={focusOnPlace} />
+              return <NearestItem key={(place.stopId || place.name) + '-' + idx} place={place} idx={idx} onItemClick={focusOnPlace} activeColor={activeColor} />
             })}
           </div>
         </div>
       )}
+
+      {/* 환영 메시지 */}
+      {!loading && onLayers.length === 0 && !anyModalOpen && (
+        <div style={{ position: 'absolute', bottom: bottomSafe, left: '50%', transform: 'translateX(-50%)', padding: '12px 20px', background: '#fff', borderRadius: 999, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 10, whiteSpace: 'nowrap', fontSize: 13, color: '#666', fontWeight: 600 }}>
+          👈 좌측에서 보고 싶은 정보를 선택하세요
+        </div>
+      )}
     </div>
   )
+}
+
+// ──────────────────────────────────────────────────────
+// 정류장 인포윈도우 콘텐츠 빌더
+// ──────────────────────────────────────────────────────
+function buildBusStopLoadingContent(stop: BusStop): string {
+  return (
+    '<div style="padding:12px 14px;min-width:240px;max-width:300px;font-family:sans-serif;">' +
+      '<div style="font-size:14px;font-weight:700;color:#1976d2;margin-bottom:4px;">🚌 ' + escapeHtml(stop.stopName) + '</div>' +
+      (stop.arsId ? '<div style="font-size:11px;color:#888;margin-bottom:8px;">ARS ' + escapeHtml(stop.arsId) + '</div>' : '') +
+      '<div style="font-size:12px;color:#999;padding:8px 0;text-align:center;">⏳ 도착정보 불러오는 중...</div>' +
+    '</div>'
+  )
+}
+
+function buildBusStopContent(stop: BusStop, arrivals: BusArrival[]): string {
+  const sorted = arrivals
+    .filter(function (a) { return a.remainMinutes > 0 || a.arriveFlag === 1 })
+    .sort(function (a, b) {
+      if (a.arriveFlag !== b.arriveFlag) return b.arriveFlag - a.arriveFlag
+      return a.remainMinutes - b.remainMinutes
+    })
+
+  const header =
+    '<div style="font-size:14px;font-weight:700;color:#1976d2;margin-bottom:4px;">🚌 ' + escapeHtml(stop.stopName) + '</div>' +
+    (stop.arsId ? '<div style="font-size:11px;color:#888;margin-bottom:8px;">ARS ' + escapeHtml(stop.arsId) + '</div>' : '')
+
+  if (sorted.length === 0) {
+    return (
+      '<div style="padding:12px 14px;min-width:240px;max-width:300px;font-family:sans-serif;">' +
+        header +
+        '<div style="font-size:12px;color:#999;padding:8px 0;text-align:center;">현재 도착 예정 버스가 없어요</div>' +
+      '</div>'
+    )
+  }
+
+  const rows = sorted.slice(0, 8).map(function (a) {
+    const color = getRouteKindColor(a.routeKind)
+    const timeText = a.arriveFlag === 1
+      ? '<span style="color:#d32f2f;font-weight:800;">곧도착</span>'
+      : '<span style="color:#333;font-weight:700;">' + a.remainMinutes + '분</span>'
+    const stopsText = a.remainStops > 0 ? '<span style="font-size:10px;color:#999;margin-left:4px;">(' + a.remainStops + '정류장)</span>' : ''
+    const lowBus = a.lowBus ? '<span style="font-size:9px;color:#1976d2;background:#e3f2fd;padding:1px 4px;border-radius:3px;margin-left:4px;">저상</span>' : ''
+    const routeShortName = escapeHtml(a.routeName.split('(')[0])
+
+    return (
+      '<div style="padding:7px 0;border-bottom:1px solid #f5f5f5;display:flex;align-items:center;justify-content:space-between;font-size:12px;gap:8px;">' +
+        '<div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;">' +
+          '<span style="display:inline-block;width:4px;height:14px;background:' + color + ';border-radius:2px;flex-shrink:0;"></span>' +
+          '<span style="font-weight:700;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + routeShortName + '</span>' +
+          lowBus +
+        '</div>' +
+        '<div style="text-align:right;flex-shrink:0;white-space:nowrap;">' +
+          timeText + stopsText +
+        '</div>' +
+      '</div>'
+    )
+  }).join('')
+
+  return (
+    '<div style="padding:12px 14px;min-width:260px;max-width:300px;font-family:sans-serif;">' +
+      header +
+      '<div style="max-height:240px;overflow-y:auto;">' + rows + '</div>' +
+    '</div>'
+  )
+}
+
+// ──────────────────────────────────────────────────────
+// 🌸 관광지 인포윈도우 콘텐츠 빌더
+// ──────────────────────────────────────────────────────
+function buildTourismContent(spot: TouristSpot): string {
+  const imgUrl = spot.imageUrl || spot.thumbnail
+  const imgSection = imgUrl
+    ? '<img src="' + escapeHtml(imgUrl) + '" alt="' + escapeHtml(spot.title) + '" ' +
+      'style="width:100%;height:140px;object-fit:cover;border-radius:6px;margin-bottom:8px;display:block;" ' +
+      'onerror="this.style.display=\'none\'"/>'
+    : ''
+
+  const telSection = spot.tel
+    ? '<div style="font-size:12px;color:#555;margin-top:6px;">📞 <a href="tel:' + escapeHtml(spot.tel) + '" style="color:#E91E63;text-decoration:none;font-weight:600;">' + escapeHtml(spot.tel) + '</a></div>'
+    : ''
+
+  const addrSection = spot.addr
+    ? '<div style="font-size:12px;color:#666;line-height:1.5;">' + escapeHtml(spot.addr) + '</div>'
+    : ''
+
+  return (
+    '<div style="padding:12px 14px;min-width:240px;max-width:280px;font-family:sans-serif;">' +
+      imgSection +
+      '<div style="display:inline-block;font-size:11px;color:#fff;background:#E91E63;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;">' + spot.emoji + ' ' + escapeHtml(spot.category) + '</div>' +
+      '<div style="font-size:14px;font-weight:700;color:#333;margin-bottom:6px;line-height:1.3;">' + escapeHtml(spot.title) + '</div>' +
+      addrSection +
+      telSection +
+    '</div>'
+  )
+}
+
+// ──────────────────────────────────────────────────────
+// 🚇 지하철 인포윈도우 콘텐츠 빌더
+// ──────────────────────────────────────────────────────
+function buildSubwayContent(station: SubwayStation): string {
+  const transferSection = station.transfer
+    ? '<div style="display:inline-block;font-size:10px;color:#fff;background:#FF8C42;padding:2px 8px;border-radius:999px;font-weight:700;margin-top:6px;">🔄 환승: ' + escapeHtml(station.transfer) + '</div>'
+    : ''
+
+  return (
+    '<div style="padding:12px 14px;min-width:220px;max-width:280px;font-family:sans-serif;">' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">' +
+        '<span style="display:inline-block;width:24px;height:24px;border-radius:50%;background:' + station.lineColor + ';color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;">1</span>' +
+        '<span style="font-size:11px;color:#666;font-weight:600;">' + escapeHtml(station.line) + ' · 역번호 ' + escapeHtml(station.code) + '</span>' +
+      '</div>' +
+      '<div style="font-size:16px;font-weight:800;color:#333;margin-bottom:4px;line-height:1.3;">🚇 ' + escapeHtml(station.name) + '역</div>' +
+      '<div style="font-size:11px;color:#999;margin-bottom:8px;">' + escapeHtml(station.nameEn) + '</div>' +
+      '<div style="font-size:12px;color:#555;line-height:1.5;">' +
+        '📍 ' + escapeHtml(station.address) +
+      '</div>' +
+      transferSection +
+      '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #eee;font-size:10px;color:#aaa;">' +
+        '⏰ ' + escapeHtml(SUBWAY_INFO.line1.operatingHours) + ' · 배차 ' + escapeHtml(SUBWAY_INFO.line1.interval) +
+      '</div>' +
+    '</div>'
+  )
+}
+
+function escapeHtml(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }

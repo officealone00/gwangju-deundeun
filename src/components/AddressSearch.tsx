@@ -75,15 +75,14 @@ export default function AddressSearch(props: Props) {
   }
 
   function onBlurInput() {
-    // 클릭 처리되도록 약간 지연
     window.setTimeout(function () {
       setShowResults(false)
     }, 200)
   }
 
   return (
-    <div style={{ position: 'absolute', top: 'max(env(safe-area-inset-top), 76px)', left: 16, right: 16, zIndex: 15 }}>
-      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', padding: '0 12px' }}>
+    <div style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top), 14px) + 86px)', left: 16, right: 16, zIndex: 15 }}>
+      <div style={{ position: 'relative', background: '#fff', borderRadius: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.18)', display: 'flex', alignItems: 'center', padding: '0 14px' }}>
         <span style={{ fontSize: 16, color: '#999', marginRight: 8 }}>🔍</span>
         <input
           type="text"
@@ -92,7 +91,7 @@ export default function AddressSearch(props: Props) {
           onFocus={onFocusInput}
           onBlur={onBlurInput}
           placeholder="광주 내 동·건물·시설 검색 (예: 봉선동)"
-          style={{ flex: 1, padding: '12px 0', border: 'none', outline: 'none', fontSize: 14, background: 'transparent', minWidth: 0 }}
+          style={{ flex: 1, padding: '13px 0', border: 'none', outline: 'none', fontSize: 14, background: 'transparent', minWidth: 0, fontWeight: 500 }}
         />
         {keyword && (
           <button onClick={onClearInput} style={{ border: 'none', background: 'none', color: '#999', fontSize: 18, cursor: 'pointer', padding: '4px 8px', flexShrink: 0 }}>✕</button>
@@ -100,7 +99,7 @@ export default function AddressSearch(props: Props) {
       </div>
 
       {showResults && (
-        <div style={{ marginTop: 6, background: '#fff', borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', maxHeight: '50vh', overflowY: 'auto' }}>
+        <div style={{ marginTop: 6, background: '#fff', borderRadius: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.18)', maxHeight: '50vh', overflowY: 'auto' }}>
           {searching && (
             <div style={{ padding: 16, textAlign: 'center', color: '#999', fontSize: 13 }}>검색 중...</div>
           )}
