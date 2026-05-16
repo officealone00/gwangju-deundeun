@@ -5,6 +5,7 @@ import { getGwangjuAirQuality, getWorstGrade, type AirQuality, type AirGradeInfo
 interface Props {
   lat: number
   lng: number
+  onModalChange?: (open: boolean) => void
 }
 
 interface WeatherInfo {
@@ -45,6 +46,13 @@ export default function WeatherBadge(props: Props) {
     loadAll()
   }, [props.lat, props.lng])
 
+  // 모달 상태 부모에 알림
+  useEffect(function () {
+    if (props.onModalChange) {
+      props.onModalChange(showDetail)
+    }
+  }, [showDetail])
+
   if (loading) {
     return (
       <div style={{ padding: '7px 10px', background: '#fff', borderRadius: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.12)', fontSize: 11, color: '#999', whiteSpace: 'nowrap' }}>
@@ -70,7 +78,7 @@ export default function WeatherBadge(props: Props) {
     e.stopPropagation()
   }
 
-  // 종합 외출 어드바이스 (어르신 기준 더 엄격)
+  // 종합 외출 어드바이스
   let outdoorAdvice = '외출하기 좋아요'
   let outdoorEmoji = '✅'
 
@@ -117,18 +125,18 @@ export default function WeatherBadge(props: Props) {
         </div>
       </div>
 
-      {/* 상세 모달 - 좁고 폰트 키워서 어르신 친화 */}
+      {/* 상세 모달 - 좁고 다른 UI는 KakaoMap에서 숨김 처리 */}
       {showDetail && (
-        <div onClick={onCloseDetail} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px 40px' }}>
-          <div onClick={onStopProp} style={{ background: '#fff', borderRadius: 20, padding: 18, maxWidth: 340, width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 10 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: '#888', fontWeight: 700 }}>외출 전 환경 정보</div>
-                <div style={{ fontSize: 19, fontWeight: 900, color: '#333', marginTop: 6, lineHeight: 1.3 }}>
-                  {outdoorEmoji} {outdoorAdvice}
-                </div>
+        <div onClick={onCloseDetail} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px 56px' }}>
+          <div onClick={onStopProp} style={{ background: '#fff', borderRadius: 20, padding: 18, maxWidth: 320, width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.4)', position: 'relative' }}>
+            {/* 닫기 ✕ 버튼 - 둥근 회색 배경 */}
+            <button onClick={onCloseDetail} style={{ position: 'absolute', top: 12, right: 12, width: 36, height: 36, border: 'none', background: '#f0f0f0', borderRadius: '50%', fontSize: 18, cursor: 'pointer', color: '#666', padding: 0, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, zIndex: 1 }}>✕</button>
+
+            <div style={{ marginBottom: 16, paddingRight: 40 }}>
+              <div style={{ fontSize: 13, color: '#888', fontWeight: 700 }}>외출 전 환경 정보</div>
+              <div style={{ fontSize: 19, fontWeight: 900, color: '#333', marginTop: 6, lineHeight: 1.3 }}>
+                {outdoorEmoji} {outdoorAdvice}
               </div>
-              <button onClick={onCloseDetail} style={{ border: 'none', background: 'none', fontSize: 26, cursor: 'pointer', color: '#999', padding: 0, lineHeight: 1, flexShrink: 0 }}>✕</button>
             </div>
 
             {/* 날씨 */}
