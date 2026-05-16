@@ -102,7 +102,7 @@ export default function WeatherBadge(props: Props) {
 
   return (
     <>
-      {/* 작은 배지 (헤더 우측 상단) - 모바일 최적화 */}
+      {/* 작은 배지 (헤더 우측 상단) */}
       <div onClick={onClickBadge} style={{ padding: '6px 10px', background: '#fff', borderRadius: 11, boxShadow: '0 2px 8px rgba(0,0,0,0.12)', display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', border: airGrade && (airGrade.grade === 'bad' || airGrade.grade === 'veryBad') ? '1.5px solid ' + airGrade.color : '1px solid #e8e8e8', flexShrink: 0 }}>
         <span style={{ fontSize: 16, lineHeight: 1 }}>{airGrade ? airGrade.emoji : '🌤️'}</span>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.1 }}>
@@ -117,30 +117,30 @@ export default function WeatherBadge(props: Props) {
         </div>
       </div>
 
-      {/* 상세 모달 - position: fixed (화면 정중앙) */}
+      {/* 상세 모달 - 좁고 폰트 키워서 어르신 친화 */}
       {showDetail && (
-        <div onClick={onCloseDetail} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div onClick={onStopProp} style={{ background: '#fff', borderRadius: 20, padding: 20, maxWidth: 400, width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, gap: 10 }}>
+        <div onClick={onCloseDetail} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px 40px' }}>
+          <div onClick={onStopProp} style={{ background: '#fff', borderRadius: 20, padding: 18, maxWidth: 340, width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>외출 전 환경 정보</div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: '#333', marginTop: 4, lineHeight: 1.3 }}>
+                <div style={{ fontSize: 13, color: '#888', fontWeight: 700 }}>외출 전 환경 정보</div>
+                <div style={{ fontSize: 19, fontWeight: 900, color: '#333', marginTop: 6, lineHeight: 1.3 }}>
                   {outdoorEmoji} {outdoorAdvice}
                 </div>
               </div>
-              <button onClick={onCloseDetail} style={{ border: 'none', background: 'none', fontSize: 22, cursor: 'pointer', color: '#999', padding: 0, lineHeight: 1, flexShrink: 0 }}>✕</button>
+              <button onClick={onCloseDetail} style={{ border: 'none', background: 'none', fontSize: 26, cursor: 'pointer', color: '#999', padding: 0, lineHeight: 1, flexShrink: 0 }}>✕</button>
             </div>
 
             {/* 날씨 */}
-            <div style={{ padding: '14px 16px', background: '#f7f9fc', borderRadius: 12, marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 8 }}>현재 날씨 (기상청)</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ fontSize: 36, lineHeight: 1, flexShrink: 0 }}>{weatherEmoji.emoji}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: '#333', lineHeight: 1 }}>{Math.round(weather.temperature)}°C</div>
-                  <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>{weatherEmoji.label} · 습도 {weather.humidity}%</div>
+            <div style={{ padding: '16px 14px', background: '#f7f9fc', borderRadius: 14, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: '#888', fontWeight: 700, marginBottom: 10, textAlign: 'center' }}>현재 날씨 (기상청)</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, justifyContent: 'center' }}>
+                <div style={{ fontSize: 48, lineHeight: 1, flexShrink: 0 }}>{weatherEmoji.emoji}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 36, fontWeight: 900, color: '#333', lineHeight: 1 }}>{Math.round(weather.temperature)}°C</div>
+                  <div style={{ fontSize: 14, color: '#666', marginTop: 6, fontWeight: 600 }}>{weatherEmoji.label} · 습도 {weather.humidity}%</div>
                   {parseFloat(weather.precipitation) > 0 && (
-                    <div style={{ fontSize: 12, color: '#1976d2', fontWeight: 700, marginTop: 2 }}>1시간 강수량 {weather.precipitation}mm</div>
+                    <div style={{ fontSize: 13, color: '#1976d2', fontWeight: 800, marginTop: 3 }}>강수량 {weather.precipitation}mm</div>
                   )}
                 </div>
               </div>
@@ -148,22 +148,22 @@ export default function WeatherBadge(props: Props) {
 
             {/* 미세먼지 */}
             {air && airGrade && (
-              <div style={{ padding: '14px 16px', background: '#f7f9fc', borderRadius: 12, marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 8 }}>대기질 (에어코리아 · {air.stationName})</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div style={{ fontSize: 36, lineHeight: 1, flexShrink: 0 }}>{airGrade.emoji}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: airGrade.color, lineHeight: 1 }}>{airGrade.label}</div>
-                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                      미세먼지 <strong>{air.pm10}</strong> · 초미세먼지 <strong>{air.pm25}</strong>
+              <div style={{ padding: '16px 14px', background: '#f7f9fc', borderRadius: 14, marginBottom: 14 }}>
+                <div style={{ fontSize: 13, color: '#888', fontWeight: 700, marginBottom: 10, textAlign: 'center' }}>대기질 (에어코리아 · 광주 평균)</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, justifyContent: 'center' }}>
+                  <div style={{ fontSize: 48, lineHeight: 1, flexShrink: 0 }}>{airGrade.emoji}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: airGrade.color, lineHeight: 1 }}>{airGrade.label}</div>
+                    <div style={{ fontSize: 14, color: '#666', marginTop: 6, fontWeight: 600 }}>
+                      미세 <strong>{air.pm10}</strong> · 초미세 <strong>{air.pm25}</strong>
                     </div>
-                    <div style={{ fontSize: 12, color: airGrade.color, fontWeight: 700, marginTop: 2 }}>{airGrade.advice}</div>
+                    <div style={{ fontSize: 13, color: airGrade.color, fontWeight: 800, marginTop: 3 }}>{airGrade.advice}</div>
                   </div>
                 </div>
               </div>
             )}
 
-            <div style={{ padding: '12px 14px', background: '#fff8f0', borderRadius: 12, fontSize: 12, color: '#7a4e1f', lineHeight: 1.5 }}>
+            <div style={{ padding: '13px 14px', background: '#fff8f0', borderRadius: 12, fontSize: 13, color: '#7a4e1f', lineHeight: 1.55, fontWeight: 500 }}>
               ℹ️ 응급실·약국 방문 전 외부 환경을 확인하세요. 어르신은 미세먼지 나쁨 이상일 때 마스크 착용을 권장합니다.
             </div>
           </div>
