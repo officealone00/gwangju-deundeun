@@ -17,11 +17,6 @@ import {
   fetchGwangjuTourism,
   type TouristSpot,
 } from '../api/tourism'
-import {
-  fetchGwangjuSubwayStations,
-  SUBWAY_INFO,
-  type SubwayStation,
-} from '../api/subway'
 import { getDistance, formatDistance, walkingMinutes } from '../utils/geo'
 import AddressSearch from './AddressSearch'
 import WeatherBadge from './WeatherBadge'
@@ -46,8 +41,7 @@ const LAYER_CONFIGS: LayerConfig[] = [
   { id: 'emergency', emoji: '🏥', label: '응급실', color: '#FF3B30', enabled: true },
   { id: 'pharmacy',  emoji: '💊', label: '약국',   color: '#4CAF50', enabled: true },
   { id: 'busStop',   emoji: '🚌', label: '정류장', color: '#1976D2', enabled: true },
-  { id: 'tourism',   emoji: '🌸', label: '관광',   color: '#E91E63', enabled: true },  // ⭐ Phase 3 활성화
-  { id: 'subway',    emoji: '🚇', label: '지하철', color: '#009E96', enabled: true },  // ⭐ Phase 4 활성화 (1호선 광주교통공사)
+  { id: 'tourism',   emoji: '🌸', label: '관광',   color: '#E91E63', enabled: true },
 ]
 
 interface LayerState {
@@ -55,7 +49,6 @@ interface LayerState {
   pharmacy: boolean
   busStop: boolean
   tourism: boolean
-  subway: boolean
 }
 
 const INITIAL_LAYERS: LayerState = {
@@ -63,12 +56,11 @@ const INITIAL_LAYERS: LayerState = {
   pharmacy: false,
   busStop: false,
   tourism: false,
-  subway: false,
 }
 
-// ── NearestPlace 확장 ───────────────────────────────────────
+// ── NearestPlace ───────────────────────────────────────
 interface NearestPlace {
-  type: 'emergency' | 'pharmacy' | 'busStop' | 'tourism' | 'subway'
+  type: 'emergency' | 'pharmacy' | 'busStop' | 'tourism'
   name: string
   addr: string
   tel?: string
@@ -80,9 +72,6 @@ interface NearestPlace {
   category?: string
   emoji?: string
   thumbnail?: string
-  // 지하철 전용
-  line?: string
-  transfer?: string
 }
 
 interface NearestItemProps {
@@ -136,7 +125,7 @@ function NearestItem(props: NearestItemProps) {
 
   const telHref = place.tel ? 'tel:' + place.tel : '#'
 
-  // 정류장용 도착정보 미리보기 텍스트
+  // 정류장용 도착정보 미리보기
   let arrivalText = ''
   if (place.type === 'busStop') {
     if (loadingArrivals) arrivalText = '도착정보 불러오는 중...'
@@ -151,7 +140,6 @@ function NearestItem(props: NearestItemProps) {
     }
   }
 
-  // 관광지 썸네일 (있고 로드 성공한 경우만)
   const showThumbnail = place.type === 'tourism' && place.thumbnail && !imgError
 
   return (
@@ -176,11 +164,6 @@ function NearestItem(props: NearestItemProps) {
         {place.type === 'tourism' && place.category && (
           <div style={{ fontSize: 11, color: '#E91E63', marginTop: 4, fontWeight: 600 }}>
             {place.category}
-          </div>
-        )}
-        {place.type === 'subway' && (
-          <div style={{ fontSize: 11, color: '#009E96', marginTop: 4, fontWeight: 600 }}>
-            🚇 {place.line}{place.transfer ? ' · ' + place.transfer : ''}
           </div>
         )}
       </div>
@@ -209,7 +192,6 @@ export default function KakaoMap() {
   const [busStopsLoading, setBusStopsLoading] = useState(false)
   const [tourismSpots, setTourismSpots] = useState<TouristSpot[]>([])
   const [tourismLoading, setTourismLoading] = useState(false)
-  const [subwayStations, setSubwayStations] = useState<SubwayStation[]>([])
 
   const [layers, setLayers] = useState<LayerState>(INITIAL_LAYERS)
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null)
@@ -246,18 +228,16 @@ export default function KakaoMap() {
     document.head.appendChild(script)
   }, [])
 
-  // ── 응급실/약국 + 지하철 데이터 로드 (즉시) ──────────────
+  // ── 응급실/약국 데이터 로드 (즉시) ──────────────────────────
   useEffect(function () {
     async function loadAll() {
       setLoading(true)
       const result = await Promise.all([
         fetchGwangjuEmergencyRooms(),
         fetchGwangjuPharmacies(),
-        fetchGwangjuSubwayStations(),
       ])
       setEmergencyRooms(result[0])
       setPharmacies(result[1])
-      setSubwayStations(result[2])
       setLoading(false)
     }
     loadAll()
@@ -281,7 +261,7 @@ export default function KakaoMap() {
     setTourismLoading(false)
   }
 
-  // ── 마커 그리기 (켜진 레이어에 따라) ──────────────────────
+  // ── 마커 그리기 ─────────────────────────────────────────
   useEffect(function () {
     if (!mapRef.current) return
 
@@ -289,14 +269,14 @@ export default function KakaoMap() {
     markersRef.current.forEach(function (m) { m.setMap(null) })
     markersRef.current = []
 
-    // 기존 버스 클러스터러 제거
+    // 버스 클러스터러 제거
     if (busClustererRef.current) {
       busClustererRef.current.clear()
       busClustererRef.current.setMap(null)
       busClustererRef.current = null
     }
 
-    // 기존 관광 클러스터러 제거
+    // 관광 클러스터러 제거
     if (tourismClustererRef.current) {
       tourismClustererRef.current.clear()
       tourismClustererRef.current.setMap(null)
@@ -461,38 +441,7 @@ export default function KakaoMap() {
       clusterer.addMarkers(tourismMarkers)
       tourismClustererRef.current = clusterer
     }
-
-    // 🚇 지하철 마커 (클러스터 불필요 - 20개)
-    if (layers.subway && subwayStations.length > 0) {
-      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="#009E96" stroke="white" stroke-width="2"/></svg>'
-      const subwayMarkerSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg)
-      const subwayMarkerImage = new window.kakao.maps.MarkerImage(
-        subwayMarkerSrc,
-        new window.kakao.maps.Size(14, 14),
-        { offset: new window.kakao.maps.Point(7, 7) }
-      )
-
-      subwayStations.forEach(function (station) {
-        const position = new window.kakao.maps.LatLng(station.lat, station.lng)
-        const marker = new window.kakao.maps.Marker({
-          position: position,
-          image: subwayMarkerImage,
-          title: station.name + '역',
-        })
-        marker.setMap(map)
-        markersRef.current.push(marker)
-
-        const infowindow = new window.kakao.maps.InfoWindow({
-          content: buildSubwayContent(station),
-          removable: true,
-        })
-
-        window.kakao.maps.event.addListener(marker, 'click', function () {
-          infowindow.open(map, marker)
-        })
-      })
-    }
-  }, [layers.emergency, layers.pharmacy, layers.busStop, layers.tourism, layers.subway, emergencyRooms, pharmacies, busStops, tourismSpots, subwayStations])
+  }, [layers.emergency, layers.pharmacy, layers.busStop, layers.tourism, emergencyRooms, pharmacies, busStops, tourismSpots])
 
   // ── 토글 함수 ─────────────────────────────────────────────
   function toggleLayer(layerId: string) {
@@ -585,19 +534,6 @@ export default function KakaoMap() {
           thumbnail: spot.thumbnail,
         }
       })
-    } else if (activeLayerId === 'subway') {
-      result = subwayStations.map(function (station) {
-        return {
-          type: 'subway' as const,
-          name: station.name + '역',
-          addr: station.address,
-          lat: station.lat,
-          lng: station.lng,
-          distance: getDistance(lat, lng, station.lat, station.lng),
-          line: station.line,
-          transfer: station.transfer,
-        }
-      })
     }
 
     if (result.length === 0) {
@@ -680,7 +616,7 @@ export default function KakaoMap() {
     if (userLocation) {
       calculateNearest(userLocation.lat, userLocation.lng)
     }
-  }, [activeLayerId, emergencyRooms, pharmacies, busStops, tourismSpots, subwayStations])
+  }, [activeLayerId, emergencyRooms, pharmacies, busStops, tourismSpots])
 
   function focusOnPlace(place: NearestPlace) {
     if (!mapRef.current) return
@@ -707,8 +643,7 @@ export default function KakaoMap() {
     (layers.emergency ? emergencyRooms.length : 0) +
     (layers.pharmacy ? pharmacies.length : 0) +
     (layers.busStop ? busStops.length : 0) +
-    (layers.tourism ? tourismSpots.length : 0) +
-    (layers.subway ? subwayStations.length : 0)
+    (layers.tourism ? tourismSpots.length : 0)
 
   const onLayers = LAYER_CONFIGS.filter(function (c) {
     return layers[c.id as keyof LayerState]
@@ -924,33 +859,6 @@ function buildTourismContent(spot: TouristSpot): string {
       '<div style="font-size:14px;font-weight:700;color:#333;margin-bottom:6px;line-height:1.3;">' + escapeHtml(spot.title) + '</div>' +
       addrSection +
       telSection +
-    '</div>'
-  )
-}
-
-// ──────────────────────────────────────────────────────
-// 🚇 지하철 인포윈도우 콘텐츠 빌더
-// ──────────────────────────────────────────────────────
-function buildSubwayContent(station: SubwayStation): string {
-  const transferSection = station.transfer
-    ? '<div style="display:inline-block;font-size:10px;color:#fff;background:#FF8C42;padding:2px 8px;border-radius:999px;font-weight:700;margin-top:6px;">🔄 환승: ' + escapeHtml(station.transfer) + '</div>'
-    : ''
-
-  return (
-    '<div style="padding:12px 14px;min-width:220px;max-width:280px;font-family:sans-serif;">' +
-      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">' +
-        '<span style="display:inline-block;width:24px;height:24px;border-radius:50%;background:' + station.lineColor + ';color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;">1</span>' +
-        '<span style="font-size:11px;color:#666;font-weight:600;">' + escapeHtml(station.line) + ' · 역번호 ' + escapeHtml(station.code) + '</span>' +
-      '</div>' +
-      '<div style="font-size:16px;font-weight:800;color:#333;margin-bottom:4px;line-height:1.3;">🚇 ' + escapeHtml(station.name) + '역</div>' +
-      '<div style="font-size:11px;color:#999;margin-bottom:8px;">' + escapeHtml(station.nameEn) + '</div>' +
-      '<div style="font-size:12px;color:#555;line-height:1.5;">' +
-        '📍 ' + escapeHtml(station.address) +
-      '</div>' +
-      transferSection +
-      '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #eee;font-size:10px;color:#aaa;">' +
-        '⏰ ' + escapeHtml(SUBWAY_INFO.line1.operatingHours) + ' · 배차 ' + escapeHtml(SUBWAY_INFO.line1.interval) +
-      '</div>' +
     '</div>'
   )
 }
